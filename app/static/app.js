@@ -251,9 +251,11 @@ function createTableRow(result) {
         'low': 'bg-success',
         'medium': 'bg-warning',
         'high': 'bg-danger',
-        'failed': 'bg-dark'
+        'extremely high risk': 'bg-dark',
+        'failed': 'bg-dark'  // Keep for backward compatibility
     };
-    const bootstrapBadge = categoryBadgeMap[result.risk_category.toLowerCase()] || 'bg-secondary';
+    const categoryLower = result.risk_category.toLowerCase();
+    const bootstrapBadge = categoryBadgeMap[categoryLower] || 'bg-secondary';
     const badge = `<span class="badge ${bootstrapBadge}">${result.risk_category.toUpperCase()}</span>`;
 
     // Student name with link (for Campus Login - but we'll show name separately in table)

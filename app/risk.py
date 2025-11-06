@@ -35,18 +35,18 @@ def simple_rule(grade_pct: float, attendance_pct: float) -> bool:
 
 def get_risk_category(risk_score: float, thresholds: Dict[str, float]) -> str:
     """
-    Categorize risk score into Low/Medium/High/Failed.
+    Categorize risk score into Low/Medium/High/Extremely High Risk.
     
     Args:
         risk_score: Risk score (0-100)
         thresholds: Dict with 'low', 'medium', 'high', 'failed' threshold values
     
     Returns:
-        Risk category string (Low, Medium, High, or Failed)
+        Risk category string (Low, Medium, High, or Extremely High Risk)
     """
     # Check thresholds in descending order
     if risk_score >= thresholds.get('failed', 90):
-        return 'Failed'
+        return 'Extremely High Risk'
     elif risk_score >= thresholds.get('high', 80):
         return 'High'
     elif risk_score >= thresholds.get('medium', 60):
