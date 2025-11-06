@@ -96,12 +96,32 @@ def normalize_pct(x) -> float:
     Returns:
         Percentage in 0-100 range
     """
+    # Handle NaN/None first
+    if pd.isna(x) or x is None:
+        return 0.0
+    
     try:
-        val = float(x)
-        if val <= 1:
-            return val * 100
+        # Convert to float, handling string values
+        if isinstance(x, str):
+            # Remove % sign and whitespace
+            val_str = str(x).strip().replace('%', '').strip()
+            if not val_str or val_str == '':
+                return 0.0
+            val = float(val_str)
+        else:
+            val = float(x)
+        
+        # Check for invalid values
+        if np.isnan(val) or np.isinf(val):
+            return 0.0
+        
+        # If value is <= 1, assume it's a decimal (0-1 range) and multiply by 100
+        # If value > 1, assume it's already a percentage (0-100 range)
+        if val <= 1.0:
+            return val * 100.0
         return val
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        print(f"DEBUG: normalize_pct error for value '{x}' (type: {type(x)}): {e}")
         return 0.0
 
 
@@ -327,6 +347,23 @@ def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str,
     
     # Load attendance dataframe
     attendance_df = pd.read_excel(excel_file, sheet_name=attendance_sheet_name, engine='openpyxl')
+    
+    # Debug: Print raw attendance DataFrame info
+    print(f"\n=== DEBUG: Raw attendance DataFrame after pd.read_excel ===")
+    print(f"Shape: {attendance_df.shape}")
+    print(f"Columns: {list(attendance_df.columns)}")
+    if 'Attended % to Date.' in attendance_df.columns:
+        print(f"'Attended % to Date.' dtype: {attendance_df['Attended % to Date.'].dtype}")
+        print(f"'Attended % to Date.' sample values (raw): {attendance_df['Attended % to Date.'].head(5).tolist()}")
+        print(f"'Attended % to Date.' non-null count: {attendance_df['Attended % to Date.'].notna().sum()}")
+        print(f"'Attended % to Date.' null count: {attendance_df['Attended % to Date.'].isna().sum()}")
+    else:
+        print("WARNING: 'Attended % to Date.' column NOT found in raw DataFrame!")
+        # Try to find similar column names
+        for col in attendance_df.columns:
+            if 'attended' in col.lower() and '%' in col:
+                print(f"Found similar column: '{col}' with values: {attendance_df[col].head(3).tolist()}")
+    print(f"=== END DEBUG: Raw attendance DataFrame ===\n")
     
     # Normalize column names (strip whitespace, handle variations) BEFORE adding Campus Login URL
     grades_df.columns = grades_df.columns.str.strip()
