@@ -226,6 +226,20 @@ async def upload_file(
         
         print(f"Processed: {len(merged_df)} students")
         
+        # Audit and validate risk scoring calculations
+        from app.risk import audit_and_recalculate_risk
+        try:
+            merged_df_audit = audit_and_recalculate_risk(merged_df)
+            # Use audited values if available for validation
+            if 'Risk Score' in merged_df_audit.columns:
+                merged_df['audited_risk_score'] = merged_df_audit['Risk Score']
+            if 'Weighted Index P' in merged_df_audit.columns:
+                merged_df['performance_index'] = merged_df_audit['Weighted Index P']
+            print("✅ Risk scoring audit completed successfully")
+        except Exception as e:
+            print(f"⚠️ Risk scoring audit warning: {e}")
+            # Continue with normal processing
+        
         if len(merged_df) == 0:
             # Provide more detailed error message
             error_detail = (
