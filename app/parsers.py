@@ -81,6 +81,7 @@ def normalize_and_rename_columns(df: pd.DataFrame, sheet_type: str) -> pd.DataFr
                 # Only rename if target_name doesn't already exist (avoid duplicates)
                 if target_name not in df.columns or target_name not in actual_rename.values():
                     actual_rename[orig_col] = target_name
+                    print(f"DEBUG: Will rename '{orig_col}' -> '{target_name}' (normalized: '{normalized}')")
                 break
     
     # Apply renaming
@@ -88,6 +89,13 @@ def normalize_and_rename_columns(df: pd.DataFrame, sheet_type: str) -> pd.DataFr
         df = df.rename(columns=actual_rename)
         print(f"DEBUG: Renamed columns in {sheet_type} sheet: {actual_rename}")
         print(f"DEBUG: Columns after renaming: {list(df.columns)}")
+        
+        # DEBUG: After renaming, check the first row to see what data is in each column
+        if len(df) > 0:
+            print(f"DEBUG: First row data after renaming:")
+            for col in df.columns:
+                val = df.iloc[0][col]
+                print(f"  {col}: {val} (type: {type(val).__name__})")
     else:
         print(f"WARNING: No columns were renamed in {sheet_type} sheet. Original columns: {list(df.columns)}")
     
@@ -591,6 +599,19 @@ def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str,
     except ValueError as e:
         raise ValueError(f"Could not find 'Students Grade' sheet. Available sheets: {workbook.sheetnames}")
     
+    # DEBUG: Print raw Excel data to understand structure
+    print(f"\n=== DEBUG: Raw Grades DataFrame from Excel ===")
+    print(f"Shape: {grades_df.shape}")
+    print(f"Columns: {list(grades_df.columns)}")
+    if len(grades_df) > 0:
+        print(f"First 3 rows (all columns):")
+        for idx in range(min(3, len(grades_df))):
+            print(f"  Row {idx}:")
+            for col in grades_df.columns:
+                val = grades_df.iloc[idx][col]
+                print(f"    {col}: {val} (type: {type(val).__name__})")
+    print(f"=== END DEBUG: Raw Grades DataFrame ===\n")
+    
     # Reset file pointer for second sheet
     excel_file.seek(0)
     
@@ -653,14 +674,53 @@ def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str,
     # Load attendance dataframe
     attendance_df = pd.read_excel(excel_file, sheet_name=attendance_sheet_name, engine='openpyxl')
     
+    # DEBUG: Print raw Excel data to understand structure
+    print(f"\n=== DEBUG: Raw Attendance DataFrame from Excel ===")
+    print(f"Shape: {attendance_df.shape}")
+    print(f"Columns: {list(attendance_df.columns)}")
+    if len(attendance_df) > 0:
+        print(f"First 3 rows (all columns):")
+        for idx in range(min(3, len(attendance_df))):
+            print(f"  Row {idx}:")
+            for col in attendance_df.columns:
+                val = attendance_df.iloc[idx][col]
+                print(f"    {col}: {val} (type: {type(val).__name__})")
+    print(f"=== END DEBUG: Raw Attendance DataFrame ===\n")
+    
     # Normalize and rename columns to handle variations BEFORE validation
     print(f"DEBUG: Original grades columns: {list(grades_df.columns)}")
     grades_df = normalize_and_rename_columns(grades_df, "grades")
     print(f"DEBUG: Normalized grades columns: {list(grades_df.columns)}")
     
+    # DEBUG: After normalization, check what's in Student Name and Student# columns
+    if 'Student Name' in grades_df.columns and 'Student#' in grades_df.columns:
+        print(f"\n=== DEBUG: After normalization - Grades DataFrame ===")
+        print(f"Student# sample (first 5): {grades_df['Student#'].head(5).tolist()}")
+        print(f"Student Name sample (first 5): {grades_df['Student Name'].head(5).tolist()}")
+        # Check if Student Name contains numeric values (misalignment indicator)
+        student_name_sample = grades_df['Student Name'].head(10)
+        numeric_names = student_name_sample.astype(str).str.match(r'^\d+$', na=False).sum()
+        if numeric_names > 0:
+            print(f"WARNING: {numeric_names} out of 10 Student Names appear to be numeric (IDs)!")
+            print(f"  Sample numeric 'names': {student_name_sample[student_name_sample.astype(str).str.match(r'^\d+$', na=False)].head(3).tolist()}")
+        print(f"=== END DEBUG ===\n")
+    
     print(f"DEBUG: Original attendance columns: {list(attendance_df.columns)}")
     attendance_df = normalize_and_rename_columns(attendance_df, "attendance")
     print(f"DEBUG: Normalized attendance columns: {list(attendance_df.columns)}")
+    
+    # DEBUG: After normalization, check what's in Student Name and Student# columns
+    if 'Student Name' in attendance_df.columns and 'Student#' in attendance_df.columns:
+        print(f"\n=== DEBUG: After normalization - Attendance DataFrame ===")
+        print(f"Student# sample (first 5): {attendance_df['Student#'].head(5).tolist()}")
+        print(f"Student Name sample (first 5): {attendance_df['Student Name'].head(5).tolist()}")
+        # Check if Student Name contains numeric values (misalignment indicator)
+        student_name_sample = attendance_df['Student Name'].head(10)
+        numeric_names = student_name_sample.astype(str).str.match(r'^\d+$', na=False).sum()
+        if numeric_names > 0:
+            print(f"WARNING: {numeric_names} out of 10 Student Names appear to be numeric (IDs)!")
+            print(f"  Sample numeric 'names': {attendance_df['Student Name'][attendance_df['Student Name'].astype(str).str.match(r'^\d+$', na=False)].head(3).tolist()}")
+        print(f"=== END DEBUG ===\n")
     
     # Also strip whitespace from column names (additional cleanup)
     # Ensure columns is an Index before using .str
