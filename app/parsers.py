@@ -1050,68 +1050,81 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     First tries merging by Student#, then falls back to Student Name if Student# is inconsistent.
     Uses outer join to include ALL students from both sheets.
     """
+    print(f"DEBUG: merge_data called - grades_df shape: {grades_df.shape}, columns: {list(grades_df.columns)}")
+    print(f"DEBUG: merge_data called - attendance_df shape: {attendance_df.shape}, columns: {list(attendance_df.columns)}")
+    
     # Ensure Student Name exists in both DataFrames (required for fallback merge)
-    grades_has_name = 'Student Name' in grades_df.columns
-    attendance_has_name = 'Student Name' in attendance_df.columns
-    
-    if not grades_has_name:
-        print(f"ERROR: 'Student Name' not found in grades_df. Available columns: {list(grades_df.columns)}")
-        # Try to create it
-        if len(grades_df) > 0:
-            grades_df['Student Name'] = 'Unknown'
-            print("WARNING: Created placeholder 'Student Name' column in grades_df")
-        else:
-            raise ValueError(f"Student Name column missing in grades DataFrame. Available columns: {list(grades_df.columns)}")
-    
-    if not attendance_has_name:
-        print(f"ERROR: 'Student Name' not found in attendance_df. Available columns: {list(attendance_df.columns)}")
-        # Try to create it
-        if len(attendance_df) > 0:
-            attendance_df['Student Name'] = 'Unknown'
-            print("WARNING: Created placeholder 'Student Name' column in attendance_df")
-        else:
-            raise ValueError(f"Student Name column missing in attendance DataFrame. Available columns: {list(attendance_df.columns)}")
-    
-    # Clean Student Name for consistent matching
-    # First ensure Student Name exists in both DataFrames
+    # Check and create if missing
     if 'Student Name' not in grades_df.columns:
-        print(f"ERROR: 'Student Name' not found in grades_df before merge. Available columns: {list(grades_df.columns)}")
+        print(f"ERROR: 'Student Name' not found in grades_df. Available columns: {list(grades_df.columns)}")
         if len(grades_df) > 0:
             grades_df['Student Name'] = 'Unknown'
             print("WARNING: Created placeholder 'Student Name' column in grades_df")
         else:
-            raise ValueError(f"'Student Name' column missing in grades DataFrame. Available columns: {list(grades_df.columns)}")
+            grades_df['Student Name'] = pd.Series([], dtype=str)
+            print("WARNING: Created empty 'Student Name' column in empty grades_df")
     
     if 'Student Name' not in attendance_df.columns:
-        print(f"ERROR: 'Student Name' not found in attendance_df before merge. Available columns: {list(attendance_df.columns)}")
+        print(f"ERROR: 'Student Name' not found in attendance_df. Available columns: {list(attendance_df.columns)}")
         if len(attendance_df) > 0:
             attendance_df['Student Name'] = 'Unknown'
             print("WARNING: Created placeholder 'Student Name' column in attendance_df")
         else:
-            raise ValueError(f"'Student Name' column missing in attendance DataFrame. Available columns: {list(attendance_df.columns)}")
+            attendance_df['Student Name'] = pd.Series([], dtype=str)
+            print("WARNING: Created empty 'Student Name' column in empty attendance_df")
     
+    # Verify columns exist now
+    if 'Student Name' not in grades_df.columns:
+        raise ValueError(f"'Student Name' column missing in grades DataFrame after creation attempt. Available columns: {list(grades_df.columns)}")
+    
+    if 'Student Name' not in attendance_df.columns:
+        raise ValueError(f"'Student Name' column missing in attendance DataFrame after creation attempt. Available columns: {list(attendance_df.columns)}")
+    
+    # Clean Student Name for consistent matching
     try:
         # Ensure we're working with a Series, not a DataFrame
         student_name_series = safe_get_series(grades_df, 'Student Name')
-        grades_df['Student Name'] = student_name_series.astype(str).str.strip()
+        if len(student_name_series) > 0:
+            grades_df['Student Name'] = student_name_series.astype(str).str.strip()
+        else:
+            grades_df['Student Name'] = student_name_series.astype(str)
         
         student_name_series = safe_get_series(attendance_df, 'Student Name')
-        attendance_df['Student Name'] = student_name_series.astype(str).str.strip()
+        if len(student_name_series) > 0:
+            attendance_df['Student Name'] = student_name_series.astype(str).str.strip()
+        else:
+            attendance_df['Student Name'] = student_name_series.astype(str)
+        
+        print("DEBUG: Successfully cleaned Student Name columns")
+    except KeyError as e:
+        # This is the actual error we're trying to catch
+        error_msg = f"KeyError accessing 'Student Name' column: {e}"
+        print(f"ERROR: {error_msg}")
+        print(f"grades_df columns: {list(grades_df.columns)}")
+        print(f"attendance_df columns: {list(attendance_df.columns)}")
+        raise ValueError(f"{error_msg}. Grades columns: {list(grades_df.columns)}, Attendance columns: {list(attendance_df.columns)}")
     except Exception as e:
         print(f"ERROR: Failed to clean Student Name columns: {e}")
+        print(f"Exception type: {type(e).__name__}")
         print(f"grades_df columns: {list(grades_df.columns)}")
         print(f"attendance_df columns: {list(attendance_df.columns)}")
         # Try fallback: use apply instead of .str
         try:
             if 'Student Name' in grades_df.columns:
                 student_name_series = safe_get_series(grades_df, 'Student Name')
-                grades_df['Student Name'] = student_name_series.apply(lambda x: str(x).strip() if pd.notna(x) else 'Unknown')
+                if len(student_name_series) > 0:
+                    grades_df['Student Name'] = student_name_series.apply(lambda x: str(x).strip() if pd.notna(x) else 'Unknown')
+                else:
+                    grades_df['Student Name'] = student_name_series.astype(str)
             if 'Student Name' in attendance_df.columns:
                 student_name_series = safe_get_series(attendance_df, 'Student Name')
-                attendance_df['Student Name'] = student_name_series.apply(lambda x: str(x).strip() if pd.notna(x) else 'Unknown')
+                if len(student_name_series) > 0:
+                    attendance_df['Student Name'] = student_name_series.apply(lambda x: str(x).strip() if pd.notna(x) else 'Unknown')
+                else:
+                    attendance_df['Student Name'] = student_name_series.astype(str)
             print("SUCCESS: Used fallback method to clean Student Name columns")
         except Exception as e2:
-            raise ValueError(f"Failed to process Student Name column: {e}. Fallback also failed: {e2}")
+            raise ValueError(f"Failed to process Student Name column: {e}. Fallback also failed: {e2}. Grades columns: {list(grades_df.columns)}, Attendance columns: {list(attendance_df.columns)}")
     
     # Try merging by Student# first (if both have it)
     merged = None
@@ -1157,22 +1170,45 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     
     # Fallback to Student Name merge (or use it if Student# doesn't exist)
     if merged is None:
-        print(f"Merging by Student Name: grades_df={len(grades_df)} rows, attendance_df={len(attendance_df)} rows")
-        print(f"DEBUG: grades_df Student Name sample: {grades_df['Student Name'].head(5).tolist()}")
-        print(f"DEBUG: attendance_df Student Name sample: {attendance_df['Student Name'].head(5).tolist()}")
+        # Verify Student Name exists before merging
+        if 'Student Name' not in grades_df.columns:
+            raise ValueError(f"Cannot merge by Student Name: column missing in grades_df. Available columns: {list(grades_df.columns)}")
+        if 'Student Name' not in attendance_df.columns:
+            raise ValueError(f"Cannot merge by Student Name: column missing in attendance_df. Available columns: {list(attendance_df.columns)}")
         
-        merged = pd.merge(
-            grades_df,
-            attendance_df,
-            on='Student Name',
-            how='outer',  # Include all students from both sheets
-            suffixes=('_grades', '_attendance'),
-            indicator=True
-        )
-        merge_method = 'Student Name'
-        print(f"Using merge by Student Name: {len(merged)} rows")
-        print(f"DEBUG: Merge by Student Name results: {merged['_merge'].value_counts().to_dict()}")
-        merged = merged.drop(columns=['_merge'])
+        print(f"Merging by Student Name: grades_df={len(grades_df)} rows, attendance_df={len(attendance_df)} rows")
+        try:
+            print(f"DEBUG: grades_df Student Name sample: {safe_get_series(grades_df, 'Student Name').head(5).tolist()}")
+            print(f"DEBUG: attendance_df Student Name sample: {safe_get_series(attendance_df, 'Student Name').head(5).tolist()}")
+        except Exception as e:
+            print(f"WARNING: Could not print Student Name samples: {e}")
+        
+        try:
+            merged = pd.merge(
+                grades_df,
+                attendance_df,
+                on='Student Name',
+                how='outer',  # Include all students from both sheets
+                suffixes=('_grades', '_attendance'),
+                indicator=True
+            )
+            merge_method = 'Student Name'
+            print(f"Using merge by Student Name: {len(merged)} rows")
+            print(f"DEBUG: Merge by Student Name results: {merged['_merge'].value_counts().to_dict()}")
+            merged = merged.drop(columns=['_merge'])
+        except KeyError as e:
+            error_msg = f"KeyError during Student Name merge: {e}"
+            print(f"ERROR: {error_msg}")
+            print(f"grades_df columns: {list(grades_df.columns)}")
+            print(f"attendance_df columns: {list(attendance_df.columns)}")
+            raise ValueError(f"{error_msg}. Grades columns: {list(grades_df.columns)}, Attendance columns: {list(attendance_df.columns)}")
+        except Exception as e:
+            error_msg = f"Error during Student Name merge: {e}"
+            print(f"ERROR: {error_msg}")
+            print(f"Exception type: {type(e).__name__}")
+            print(f"grades_df columns: {list(grades_df.columns)}")
+            print(f"attendance_df columns: {list(attendance_df.columns)}")
+            raise ValueError(f"{error_msg}. Grades columns: {list(grades_df.columns)}, Attendance columns: {list(attendance_df.columns)}")
     
     # Ensure Student# column exists (create from either side if needed)
     if 'Student#' not in merged.columns:
@@ -1186,9 +1222,20 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
             # Generate sequential IDs if neither exists
             merged['Student#'] = range(1, len(merged) + 1)
     
-    print(f"After merge ({merge_method}): {len(merged)} rows, {merged['Student Name'].nunique()} unique students")
-    print(f"DEBUG: merged columns: {list(merged.columns)}")
-    print(f"DEBUG: merged Student Name sample: {merged['Student Name'].head(10).tolist()}")
+    # Verify merged DataFrame has Student Name
+    if 'Student Name' not in merged.columns and 'Student Name_grades' not in merged.columns and 'Student Name_attendance' not in merged.columns:
+        print(f"WARNING: 'Student Name' not found in merged DataFrame. Available columns: {list(merged.columns)}")
+        merged['Student Name'] = 'Unknown'
+    
+    try:
+        student_name_col = 'Student Name' if 'Student Name' in merged.columns else ('Student Name_grades' if 'Student Name_grades' in merged.columns else 'Student Name_attendance')
+        print(f"After merge ({merge_method}): {len(merged)} rows, {safe_get_series(merged, student_name_col).nunique()} unique students")
+        print(f"DEBUG: merged columns: {list(merged.columns)}")
+        print(f"DEBUG: merged Student Name sample: {safe_get_series(merged, student_name_col).head(10).tolist()}")
+    except Exception as e:
+        print(f"WARNING: Could not print merge statistics: {e}")
+        print(f"After merge ({merge_method}): {len(merged)} rows")
+        print(f"DEBUG: merged columns: {list(merged.columns)}")
     
     # Handle Student Name - prefer grades, fallback to attendance
     if 'Student Name_grades' in merged.columns and 'Student Name_attendance' in merged.columns:
