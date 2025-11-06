@@ -468,8 +468,18 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
     if student_id_col:
         # Convert Student# to numeric (int) for consistent matching
         try:
-            grades_normalized['Student#'] = pd.to_numeric(grades_normalized[student_id_col], errors='coerce').fillna(0).astype(int)
-        except (ValueError, TypeError):
+            # First try to convert to numeric, handling any string values
+            student_ids = pd.to_numeric(grades_normalized[student_id_col], errors='coerce')
+            # Replace NaN with 0, but keep track of which ones failed
+            grades_normalized['Student#'] = student_ids.fillna(0).astype(int)
+            # If we got all zeros, the conversion probably failed - use string instead
+            if (grades_normalized['Student#'] == 0).all():
+                print("WARNING: All Student# values converted to 0 in grades, using string format instead")
+                grades_normalized['Student#'] = grades_normalized[student_id_col].astype(str).str.strip()
+            else:
+                print(f"Successfully converted grades Student# to int, sample: {grades_normalized['Student#'].head(3).tolist()}")
+        except (ValueError, TypeError) as e:
+            print(f"Warning: Could not convert grades Student# to numeric: {e}, using string format")
             # Fallback to string if conversion fails
             grades_normalized['Student#'] = grades_normalized[student_id_col].astype(str).str.strip()
     
@@ -511,8 +521,18 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
     if student_id_col:
         # Convert Student# to numeric (int) for consistent matching
         try:
-            attendance_normalized['Student#'] = pd.to_numeric(attendance_normalized[student_id_col], errors='coerce').fillna(0).astype(int)
-        except (ValueError, TypeError):
+            # First try to convert to numeric, handling any string values
+            student_ids = pd.to_numeric(attendance_normalized[student_id_col], errors='coerce')
+            # Replace NaN with 0, but keep track of which ones failed
+            attendance_normalized['Student#'] = student_ids.fillna(0).astype(int)
+            # If we got all zeros, the conversion probably failed - use string instead
+            if (attendance_normalized['Student#'] == 0).all():
+                print("WARNING: All Student# values converted to 0 in attendance, using string format instead")
+                attendance_normalized['Student#'] = attendance_normalized[student_id_col].astype(str).str.strip()
+            else:
+                print(f"Successfully converted attendance Student# to int, sample: {attendance_normalized['Student#'].head(3).tolist()}")
+        except (ValueError, TypeError) as e:
+            print(f"Warning: Could not convert attendance Student# to numeric: {e}, using string format")
             # Fallback to string if conversion fails
             attendance_normalized['Student#'] = attendance_normalized[student_id_col].astype(str).str.strip()
 
@@ -617,20 +637,34 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
         print(f"attendance_df Student# sample: {attendance_df['Student#'].head(3).tolist()}")
         print(f"attendance_df Student# dtype: {attendance_df['Student#'].dtype}")
     
-    # Ensure Student# is numeric in both DataFrames before merging
-    if 'Student#' in grades_df.columns:
-        try:
-            grades_df['Student#'] = pd.to_numeric(grades_df['Student#'], errors='coerce').fillna(0).astype(int)
-            print(f"Converted grades_df Student# to int, sample: {grades_df['Student#'].head(3).tolist()}")
-        except (ValueError, TypeError) as e:
-            print(f"Warning: Could not convert grades_df Student# to numeric: {e}")
-    
-    if 'Student#' in attendance_df.columns:
-        try:
-            attendance_df['Student#'] = pd.to_numeric(attendance_df['Student#'], errors='coerce').fillna(0).astype(int)
-            print(f"Converted attendance_df Student# to int, sample: {attendance_df['Student#'].head(3).tolist()}")
-        except (ValueError, TypeError) as e:
-            print(f"Warning: Could not convert attendance_df Student# to numeric: {e}")
+    # Ensure Student# types match in both DataFrames before merging
+    # Check if Student# is already numeric or string
+    if 'Student#' in grades_df.columns and 'Student#' in attendance_df.columns:
+        grades_dtype = grades_df['Student#'].dtype
+        attendance_dtype = attendance_df['Student#'].dtype
+        
+        print(f"Before merge conversion - grades_df Student# dtype: {grades_dtype}, attendance_df Student# dtype: {attendance_dtype}")
+        
+        # If one is numeric and one is string, convert both to string for matching
+        if (pd.api.types.is_numeric_dtype(grades_dtype) and not pd.api.types.is_numeric_dtype(attendance_dtype)) or \
+           (not pd.api.types.is_numeric_dtype(grades_dtype) and pd.api.types.is_numeric_dtype(attendance_dtype)):
+            print("WARNING: Student# types don't match, converting both to string for matching")
+            grades_df['Student#'] = grades_df['Student#'].astype(str).str.strip()
+            attendance_df['Student#'] = attendance_df['Student#'].astype(str).str.strip()
+        elif not pd.api.types.is_numeric_dtype(grades_dtype) and not pd.api.types.is_numeric_dtype(attendance_dtype):
+            # Both are strings, ensure they're clean
+            grades_df['Student#'] = grades_df['Student#'].astype(str).str.strip()
+            attendance_df['Student#'] = attendance_df['Student#'].astype(str).str.strip()
+        else:
+            # Both are numeric, ensure they're the same type
+            try:
+                grades_df['Student#'] = pd.to_numeric(grades_df['Student#'], errors='coerce').fillna(0).astype(int)
+                attendance_df['Student#'] = pd.to_numeric(attendance_df['Student#'], errors='coerce').fillna(0).astype(int)
+                print(f"Converted both to int, grades sample: {grades_df['Student#'].head(3).tolist()}, attendance sample: {attendance_df['Student#'].head(3).tolist()}")
+            except (ValueError, TypeError) as e:
+                print(f"Warning: Could not convert to numeric: {e}, using string format")
+                grades_df['Student#'] = grades_df['Student#'].astype(str).str.strip()
+                attendance_df['Student#'] = attendance_df['Student#'].astype(str).str.strip()
     
     # Merge on Student# - try inner join first, fallback to left if no matches
     merged = pd.merge(
