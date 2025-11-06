@@ -604,9 +604,16 @@ async def upload_file(
             # Get explanation - use row_idx for sequential access
             explanation = get_explanation(row_idx, merged_df, model, scaler, feature_cols)
             
+            # Final validation before creating result object
+            # Ensure Student ID is numeric string (not index) and Student Name is text (not ID)
+            if row_idx < 5:
+                print(f"  Before creating result: student_id='{student_id}', student_name='{student_name}'")
+                print(f"    student_id is numeric: {student_id.isdigit() if isinstance(student_id, str) else False}")
+                print(f"    student_name is numeric: {student_name.isdigit() if isinstance(student_name, str) else False}")
+            
             result = StudentRiskResult(
-                student_id=student_id,
-                student_name=student_name,
+                student_id=str(student_id),  # Ensure it's a string
+                student_name=str(student_name),  # Ensure it's a string
                 program_name=program_name,
                 grade_pct=grade_pct,
                 attendance_pct=attendance_pct,
@@ -619,7 +626,9 @@ async def upload_file(
                 explanation=explanation
             )
             results.append(result)
+            
             if row_idx < 5:  # Debug first 5 results
+                print(f"  After creating result: student_id='{result.student_id}', student_name='{result.student_name}'")
                 print(f"DEBUG: Added result {row_idx}: {student_name}, data_status: {data_status}, risk_category: {risk_category}")
         
         print(f"DEBUG: Total results built: {len(results)}")
