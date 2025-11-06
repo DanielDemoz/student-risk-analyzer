@@ -830,8 +830,11 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     else:
         merged['grade_pct'] = merged['grade_pct'].fillna(0.0)
     
-    # Deduplicate by Student# (keep last row)
-    merged = merged.drop_duplicates(subset=['Student#'], keep='last')
+    # Remove duplicates by Student# (keep first occurrence)
+    # This handles cases where a student appears multiple times
+    merged = merged.drop_duplicates(subset=['Student#'], keep='first')
+    
+    print(f"After deduplication: {len(merged)} rows")
     
     return merged
 
