@@ -55,6 +55,46 @@ def get_risk_category(risk_score: float, thresholds: Dict[str, float]) -> str:
         return 'Low'
 
 
+def classify_risk_by_grade_attendance(grade_pct: float, attendance_pct: float) -> str:
+    """
+    Classify risk category directly from grade and attendance percentages.
+    Uses explicit numeric conversion and direct threshold comparisons.
+    
+    This ensures that low grade alone (even if attendance is high) still triggers High Risk.
+    
+    Args:
+        grade_pct: Grade percentage (0-100, numeric or string like "24.0%")
+        attendance_pct: Attendance percentage (0-100, numeric or string like "88.9%")
+    
+    Returns:
+        Risk category string (Low Risk, Medium Risk, High Risk, or Extremely High Risk)
+    """
+    # Ensure explicit numeric conversion (handle string inputs like "24.0%")
+    if isinstance(grade_pct, str):
+        grade_pct = float(str(grade_pct).replace("%", "").strip())
+    else:
+        grade_pct = float(grade_pct)
+    
+    if isinstance(attendance_pct, str):
+        attendance_pct = float(str(attendance_pct).replace("%", "").strip())
+    else:
+        attendance_pct = float(attendance_pct)
+    
+    # Clamp to valid range
+    grade = max(0.0, min(100.0, grade_pct))
+    attendance = max(0.0, min(100.0, attendance_pct))
+    
+    # Classification logic: low grade alone (even if attendance is high) triggers High Risk
+    if grade < 70 and attendance < 70:
+        return "Extremely High Risk"
+    elif grade < 80 or attendance < 80:
+        return "High Risk"
+    elif grade < 90 or attendance < 90:
+        return "Medium Risk"
+    else:
+        return "Low Risk"
+
+
 def train_or_fallback_score(
     df: pd.DataFrame,
     thresholds: Dict[str, float],
