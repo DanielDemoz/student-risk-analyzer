@@ -272,8 +272,8 @@ function createTableRow(result) {
     const studentName = result.student_name || 'Unknown';
     
     row.innerHTML = `
-        <td>${studentId}</td>
         <td>${studentName}</td>
+        <td>${studentId}</td>
         <td>${result.program_name}</td>
         <td>${result.grade_pct.toFixed(1)}%</td>
         <td>${result.attendance_pct.toFixed(1)}%</td>
