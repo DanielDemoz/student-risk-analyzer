@@ -240,6 +240,9 @@ function displayResults(data) {
 function createTableRow(result) {
     const row = document.createElement('tr');
 
+    // Student ID
+    const studentId = result.student_id || 'N/A';
+    
     // Risk category badge
     const badgeClass = `badge-${result.risk_category.toLowerCase()}`;
     const badge = `<span class="badge ${badgeClass}">${result.risk_category}</span>`;
@@ -258,6 +261,7 @@ function createTableRow(result) {
     
     row.innerHTML = `
         <td>${studentNameLink}</td>
+        <td>${studentId}</td>
         <td>${result.program_name}</td>
         <td>${result.grade_pct.toFixed(1)}%</td>
         <td>${result.attendance_pct.toFixed(1)}%</td>

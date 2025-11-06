@@ -1146,12 +1146,12 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
         print(f"DEBUG: grades_df Student# sample: {grades_df_clean['Student#'].head(5).tolist()}")
         print(f"DEBUG: attendance_df Student# sample: {attendance_df_clean['Student#'].head(5).tolist()}")
         
-        # Try merge by Student#
+        # Try merge by Student# (INNER JOIN - only students in both sheets)
         merged_by_id = pd.merge(
             grades_df_clean,
             attendance_df_clean,
             on='Student#',
-            how='outer',
+            how='inner',  # Changed from 'outer' to 'inner' - only include students in both sheets
             suffixes=('_grades', '_attendance'),
             indicator=True
         )
@@ -1188,7 +1188,7 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
                 grades_df,
                 attendance_df,
                 on='Student Name',
-                how='outer',  # Include all students from both sheets
+                how='inner',  # Changed from 'outer' to 'inner' - only include students in both sheets
                 suffixes=('_grades', '_attendance'),
                 indicator=True
             )
