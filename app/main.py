@@ -299,43 +299,65 @@ async def upload_file(
         # Ensure index is reset to avoid serial number in output
         merged_df = merged_df.reset_index(drop=True)
         
+        # Debug: Print column names to understand merge structure
+        print(f"DEBUG: Merged DataFrame columns: {list(merged_df.columns)}")
+        print(f"DEBUG: Merged DataFrame shape: {merged_df.shape}")
+        if len(merged_df) > 0:
+            print(f"DEBUG: First row sample columns: {list(merged_df.iloc[0].index)}")
+            print(f"DEBUG: First row Student#: {merged_df.iloc[0].get('Student#', 'NOT FOUND')}")
+            print(f"DEBUG: First row Student Name: {merged_df.iloc[0].get('Student Name', 'NOT FOUND')}")
+            # Check for suffixed columns
+            student_name_cols = [col for col in merged_df.columns if 'Student Name' in col]
+            student_id_cols = [col for col in merged_df.columns if 'Student#' in col or 'Student ID' in col]
+            print(f"DEBUG: Student Name columns found: {student_name_cols}")
+            print(f"DEBUG: Student ID columns found: {student_id_cols}")
+        
         results = []
         for row_idx, (_, row) in enumerate(merged_df.iterrows()):
             if row_idx < 5:  # Debug first 5 rows
                 print(f"DEBUG: Processing row {row_idx}")
-                print(f"  Student#: {row.get('Student#')}")
-                print(f"  Student Name: {row.get('Student Name', 'Unknown')}")
                 print(f"  Available columns: {list(row.index)}")
             
-            # Extract Student# and Student Name - ensure correct alignment
-            # Student# should be numeric ID, Student Name should be actual name
-            student_id_val = row.get('Student#', None)
-            if pd.isna(student_id_val) or student_id_val is None:
+            # Extract Student# - handle merge suffixes (_grades, _attendance)
+            # Priority: Student# (merge key) > Student#_grades > Student#_attendance
+            student_id_val = None
+            if 'Student#' in row.index and pd.notna(row.get('Student#')):
+                student_id_val = row.get('Student#')
+            elif 'Student#_grades' in row.index and pd.notna(row.get('Student#_grades')):
+                student_id_val = row.get('Student#_grades')
+            elif 'Student#_attendance' in row.index and pd.notna(row.get('Student#_attendance')):
+                student_id_val = row.get('Student#_attendance')
+            else:
                 # Try alternative column names
-                for col in ['Student#', 'Student ID', 'Student Number', 'student_id']:
+                for col in ['Student ID', 'Student Number', 'student_id']:
                     if col in row.index and pd.notna(row.get(col)):
                         student_id_val = row.get(col)
                         break
-                if pd.isna(student_id_val) or student_id_val is None:
-                    student_id = 'Unknown'
-                else:
-                    student_id = str(student_id_val).strip()
+            
+            if student_id_val is None or pd.isna(student_id_val):
+                student_id = 'Unknown'
             else:
                 # Convert to string and strip - this is the numeric ID
                 student_id = str(student_id_val).strip()
             
-            # Handle Student Name - clean NaN values and ensure it's not the ID
-            student_name_val = row.get('Student Name', None)
-            if pd.isna(student_name_val) or student_name_val is None or str(student_name_val).strip().lower() in ['nan', 'none', '']:
+            # Extract Student Name - handle merge suffixes (_grades, _attendance)
+            # Priority: Student Name_grades > Student Name_attendance > Student Name
+            student_name_val = None
+            if 'Student Name_grades' in row.index and pd.notna(row.get('Student Name_grades')):
+                student_name_val = row.get('Student Name_grades')
+            elif 'Student Name_attendance' in row.index and pd.notna(row.get('Student Name_attendance')):
+                student_name_val = row.get('Student Name_attendance')
+            elif 'Student Name' in row.index and pd.notna(row.get('Student Name')):
+                student_name_val = row.get('Student Name')
+            else:
                 # Try alternative column names
-                for col in ['Student Name', 'Name', 'student_name', 'Full Name']:
+                for col in ['Name', 'student_name', 'Full Name']:
                     if col in row.index and pd.notna(row.get(col)):
                         student_name_val = row.get(col)
                         break
-                if pd.isna(student_name_val) or student_name_val is None or str(student_name_val).strip().lower() in ['nan', 'none', '']:
-                    student_name = 'Unknown'
-                else:
-                    student_name = str(student_name_val).strip()
+            
+            if student_name_val is None or pd.isna(student_name_val) or str(student_name_val).strip().lower() in ['nan', 'none', '']:
+                student_name = 'Unknown'
             else:
                 student_name = str(student_name_val).strip()
             
@@ -349,6 +371,8 @@ async def upload_file(
                 pass
             
             if row_idx < 5:  # Debug first 5 rows
+                print(f"  Student# value: {row.get('Student#', 'NOT FOUND')}")
+                print(f"  Student Name value: {row.get('Student Name', 'NOT FOUND')}")
                 print(f"  Final - Student ID: {student_id}, Student Name: {student_name}")
             
             # Handle Program Name - clean NaN values
