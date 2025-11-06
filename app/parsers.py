@@ -347,22 +347,40 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
             max_att = valid_values.max()
             min_att = valid_values.min()
             
-            # Debug: Check the range of values
+            # Check the range of values
             # If max is > 1, assume values are already in 0-100 range
             # If max <= 1, assume values are in 0-1 range and need multiplication
             if pd.notna(max_att) and max_att > 0:
                 if max_att > 1.0:
                     # Values are already in 0-100 range
                     attendance_normalized['attendance_pct'] = att_values_numeric.fillna(0.0)
-                else:
+                elif max_att <= 1.0:
                     # Values are in 0-1 range, multiply by 100
                     attendance_normalized['attendance_pct'] = (att_values_numeric * 100.0).fillna(0.0)
+                else:
+                    # Edge case: all zeros
+                    attendance_normalized['attendance_pct'] = 0.0
             else:
-                # All values are 0 or invalid
-                attendance_normalized['attendance_pct'] = 0.0
+                # All values are 0 or invalid - try direct conversion
+                attendance_normalized['attendance_pct'] = att_values_numeric.fillna(0.0) * 100.0
         else:
-            # No valid values found
-            attendance_normalized['attendance_pct'] = 0.0
+            # No valid values found - try to extract from raw values
+            # Sometimes the column might have text like "85%" or "0.85"
+            def extract_percentage(val):
+                if pd.isna(val):
+                    return 0.0
+                val_str = str(val).strip()
+                # Remove % sign if present
+                val_str = val_str.replace('%', '').strip()
+                try:
+                    num_val = float(val_str)
+                    # If > 1, assume it's already a percentage
+                    # If <= 1, assume it's a decimal
+                    return num_val if num_val > 1.0 else num_val * 100.0
+                except (ValueError, TypeError):
+                    return 0.0
+            
+            attendance_normalized['attendance_pct'] = attendance_normalized[att_pct_col].apply(extract_percentage)
     else:
         # Column not found - try alternative: calculate from hours
         # Try to calculate from Attended Hours / Scheduled Hours

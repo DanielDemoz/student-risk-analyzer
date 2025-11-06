@@ -132,6 +132,26 @@ async def health_check():
     return JSONResponse(content={"status": "ok", "message": "Server is running"})
 
 
+@app.post("/debug-columns")
+async def debug_columns(file: UploadFile = File(...)):
+    """Debug endpoint to see what columns are in the Excel file."""
+    try:
+        file_bytes = await file.read()
+        grades_df, attendance_df, name_hyperlinks = load_excel(file_bytes)
+        
+        return JSONResponse(content={
+            "grades_columns": list(grades_df.columns),
+            "attendance_columns": list(attendance_df.columns),
+            "grades_sample": grades_df.head(3).to_dict(orient='records') if len(grades_df) > 0 else [],
+            "attendance_sample": attendance_df.head(3).to_dict(orient='records') if len(attendance_df) > 0 else []
+        })
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e), "traceback": traceback.format_exc()}
+        )
+
+
 @app.post("/upload", response_model=UploadResponse)
 async def upload_file(
     file: UploadFile = File(...)
