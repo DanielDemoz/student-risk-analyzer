@@ -1,0 +1,461 @@
+/* BRUKD Consultancy Brand Styles */
+
+:root {
+    --brukd-primary: #12355B;
+    --brukd-accent: #F5A623;
+    --brukd-background: #F9FAFB;
+    --brukd-text: #1F2937;
+    --brukd-button-hover: #0F2C47;
+    --brukd-border: #E5E7EB;
+    --brukd-shadow: rgba(18, 53, 91, 0.1);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    background-color: var(--brukd-background);
+    color: var(--brukd-text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0;
+}
+
+/* Header */
+.brukd-header {
+    background: linear-gradient(135deg, var(--brukd-primary) 0%, var(--brukd-button-hover) 100%);
+    color: white;
+    box-shadow: 0 2px 8px var(--brukd-shadow);
+}
+
+.brukd-logo {
+    font-size: 2rem;
+    font-weight: 700;
+    color: white;
+    letter-spacing: 0.5px;
+    margin: 0;
+}
+
+.brukd-tagline {
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.9);
+    font-weight: 300;
+    letter-spacing: 0.3px;
+}
+
+/* Main Content */
+.brukd-main {
+    min-height: calc(100vh - 200px);
+}
+
+.brukd-section {
+    animation: fadeIn 0.5s ease-in;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.brukd-section-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--brukd-primary);
+    margin-bottom: 1rem;
+}
+
+/* Cards */
+.brukd-card {
+    border: none;
+    border-radius: 12px;
+    background: white;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.brukd-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px var(--brukd-shadow) !important;
+}
+
+.brukd-card-header {
+    background: linear-gradient(135deg, var(--brukd-primary) 0%, var(--brukd-button-hover) 100%);
+    color: white;
+    border: none;
+    border-radius: 12px 12px 0 0 !important;
+    padding: 1.25rem 1.5rem;
+}
+
+.brukd-card-header .brukd-section-title {
+    color: white;
+    margin: 0;
+}
+
+/* Summary Cards */
+.brukd-summary-card {
+    border: none;
+    border-radius: 12px;
+    background: white;
+    transition: all 0.3s ease;
+    border-left: 4px solid transparent;
+}
+
+.brukd-summary-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 6px 16px var(--brukd-shadow) !important;
+}
+
+.brukd-summary-card:nth-child(1) {
+    border-left-color: var(--brukd-primary);
+}
+
+.brukd-summary-card:nth-child(2) {
+    border-left-color: #dc3545;
+}
+
+.brukd-summary-card:nth-child(3) {
+    border-left-color: #ffc107;
+}
+
+.brukd-summary-card:nth-child(4) {
+    border-left-color: #28a745;
+}
+
+.brukd-stat-number {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin: 0;
+    line-height: 1.2;
+}
+
+.brukd-stat-label {
+    font-size: 0.9rem;
+    color: #6B7280;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Buttons */
+.brukd-btn-primary {
+    background-color: var(--brukd-primary);
+    border-color: var(--brukd-primary);
+    color: white;
+    font-weight: 600;
+    padding: 0.75rem 2rem;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 0.9rem;
+}
+
+.brukd-btn-primary:hover {
+    background-color: var(--brukd-button-hover);
+    border-color: var(--brukd-button-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px var(--brukd-shadow);
+    color: white;
+}
+
+.brukd-btn-primary:active {
+    transform: translateY(0);
+}
+
+.brukd-btn-primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.brukd-btn-secondary {
+    background-color: white;
+    border: 2px solid var(--brukd-primary);
+    color: var(--brukd-primary);
+    font-weight: 600;
+    padding: 0.6rem 1.5rem;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+}
+
+.brukd-btn-secondary:hover {
+    background-color: var(--brukd-primary);
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px var(--brukd-shadow);
+}
+
+.btn-action {
+    margin: 0.2rem;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+    border-radius: 6px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn-action:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Table */
+.brukd-table {
+    margin: 0;
+}
+
+.brukd-table-header {
+    background: linear-gradient(135deg, var(--brukd-primary) 0%, var(--brukd-button-hover) 100%);
+    color: white;
+}
+
+.brukd-table-header th {
+    border: none;
+    padding: 1rem 1.5rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+    letter-spacing: 0.5px;
+    color: white;
+}
+
+.brukd-table tbody tr {
+    border-bottom: 1px solid var(--brukd-border);
+    transition: all 0.2s ease;
+}
+
+.brukd-table tbody tr:hover {
+    background-color: #F3F4F6;
+    transform: scale(1.01);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.brukd-table tbody td {
+    padding: 1rem 1.5rem;
+    vertical-align: middle;
+}
+
+/* Badges */
+.badge {
+    padding: 0.5em 1em;
+    font-weight: 600;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.badge-high {
+    background-color: #dc3545;
+    color: white;
+}
+
+.badge-medium {
+    background-color: #ffc107;
+    color: #000;
+}
+
+.badge-low {
+    background-color: #28a745;
+    color: white;
+}
+
+/* Forms */
+.form-control {
+    border: 2px solid var(--brukd-border);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    transition: all 0.3s ease;
+}
+
+.form-control:focus {
+    border-color: var(--brukd-primary);
+    box-shadow: 0 0 0 0.2rem rgba(18, 53, 91, 0.15);
+    outline: none;
+}
+
+.form-control-lg {
+    padding: 1rem 1.25rem;
+    font-size: 1rem;
+}
+
+.form-label {
+    color: var(--brukd-text);
+    margin-bottom: 0.5rem;
+}
+
+/* Alerts */
+.alert {
+    border: none;
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    border-left: 4px solid;
+}
+
+.alert-danger {
+    background-color: #FEF2F2;
+    border-left-color: #dc3545;
+    color: #991B1B;
+}
+
+.alert-success {
+    background-color: #F0FDF4;
+    border-left-color: #28a745;
+    color: #166534;
+}
+
+/* Progress Bar */
+.progress {
+    border-radius: 10px;
+    background-color: #E5E7EB;
+    overflow: hidden;
+}
+
+.progress-bar {
+    background: linear-gradient(90deg, var(--brukd-primary) 0%, var(--brukd-accent) 100%);
+}
+
+/* Modal */
+.brukd-modal {
+    border: none;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.brukd-modal-header {
+    background: linear-gradient(135deg, var(--brukd-primary) 0%, var(--brukd-button-hover) 100%);
+    color: white;
+    border: none;
+    padding: 1.25rem 1.5rem;
+}
+
+.brukd-modal-header .modal-title {
+    color: white;
+    font-weight: 600;
+}
+
+.brukd-modal-header .btn-close {
+    filter: invert(1);
+}
+
+.brukd-modal-footer {
+    border-top: 1px solid var(--brukd-border);
+    padding: 1rem 1.5rem;
+}
+
+/* Footer */
+.brukd-footer {
+    background-color: white;
+    border-top: 2px solid var(--brukd-border);
+    margin-top: 4rem;
+}
+
+.brukd-footer-link {
+    color: var(--brukd-primary);
+    text-decoration: none;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.brukd-footer-link:hover {
+    color: var(--brukd-accent);
+    text-decoration: underline;
+}
+
+/* Links */
+a {
+    color: var(--brukd-primary);
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+
+a:hover {
+    color: var(--brukd-accent);
+    text-decoration: underline;
+}
+
+/* Spinner */
+.spinner-border-sm {
+    width: 1rem;
+    height: 1rem;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .brukd-logo {
+        font-size: 1.5rem;
+    }
+    
+    .brukd-tagline {
+        font-size: 0.9rem;
+    }
+    
+    .brukd-section-title {
+        font-size: 1.25rem;
+    }
+    
+    .brukd-stat-number {
+        font-size: 2rem;
+    }
+    
+    .brukd-table-header th,
+    .brukd-table tbody td {
+        padding: 0.75rem 1rem;
+        font-size: 0.85rem;
+    }
+    
+    .brukd-table {
+        font-size: 0.85rem;
+    }
+    
+    .btn-action {
+        font-size: 0.75rem;
+        padding: 0.3rem 0.6rem;
+        margin: 0.1rem;
+    }
+    
+    .brukd-btn-primary,
+    .brukd-btn-secondary {
+        width: 100%;
+        margin-bottom: 0.5rem;
+    }
+}
+
+/* Print Styles */
+@media print {
+    .brukd-header,
+    .brukd-footer,
+    .btn,
+    #uploadForm {
+        display: none;
+    }
+    
+    .brukd-card {
+        box-shadow: none;
+        border: 1px solid #ddd;
+    }
+}
+
+/* Accessibility */
+:focus-visible {
+    outline: 3px solid var(--brukd-accent);
+    outline-offset: 2px;
+}
+
+/* Smooth Scrolling */
+html {
+    scroll-behavior: smooth;
+}
+
+/* Loading State */
+.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}

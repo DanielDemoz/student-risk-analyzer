@@ -1,0 +1,300 @@
+// Student Risk Analyzer Frontend JavaScript
+
+let currentResults = [];
+
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+    const uploadForm = document.getElementById('uploadForm');
+    const searchInput = document.getElementById('searchInput');
+    const exportCsvBtn = document.getElementById('exportCsvBtn');
+    const copyEmailBtn = document.getElementById('copyEmailBtn');
+
+    // Upload form handler
+    uploadForm.addEventListener('submit', handleUpload);
+
+    // Search handler
+    searchInput.addEventListener('input', handleSearch);
+
+    // Export CSV handler
+    exportCsvBtn.addEventListener('click', handleExportCsv);
+
+    // Copy email handler
+    copyEmailBtn.addEventListener('click', handleCopyEmail);
+});
+
+// Handle file upload
+async function handleUpload(e) {
+    e.preventDefault();
+
+    const fileInput = document.getElementById('fileInput');
+    const campusLoginUrl = document.getElementById('campusLoginUrl').value;
+    const processBtn = document.getElementById('processBtn');
+    const spinner = document.getElementById('spinner');
+    const errorAlert = document.getElementById('errorAlert');
+    const successAlert = document.getElementById('successAlert');
+
+    if (!fileInput.files || fileInput.files.length === 0) {
+        showError('Please select a file to upload');
+        return;
+    }
+
+    // Show spinner and progress
+    processBtn.disabled = true;
+    spinner.classList.remove('d-none');
+    document.getElementById('btnText').textContent = 'Processing...';
+    const progressBar = document.getElementById('progressBar');
+    progressBar.classList.remove('d-none');
+    errorAlert.classList.add('d-none');
+    successAlert.classList.add('d-none');
+
+    // Prepare form data
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    if (campusLoginUrl) {
+        formData.append('campus_login_base_url', campusLoginUrl);
+    }
+
+    try {
+        const response = await fetch('/upload', {
+            method: 'POST',
+            body: formData
+        });
+
+        // Check if response is JSON
+        const contentType = response.headers.get('content-type');
+        let data;
+        
+        if (contentType && contentType.includes('application/json')) {
+            data = await response.json();
+        } else {
+            // If not JSON, read as text to get error message
+            const text = await response.text();
+            throw new Error(`Server error: ${response.status} ${response.statusText}. ${text.substring(0, 200)}`);
+        }
+
+        if (!response.ok) {
+            throw new Error(data.detail || data.message || 'Upload failed');
+        }
+
+        // Store results
+        currentResults = data.results;
+
+        // Display results
+        displayResults(data);
+        showSuccess(data.message);
+
+    } catch (error) {
+        // Handle JSON parsing errors
+        if (error instanceof SyntaxError) {
+            showError('Server returned invalid response. Please check the server logs.');
+        } else {
+            showError(error.message || 'An error occurred while processing the file');
+        }
+    } finally {
+        processBtn.disabled = false;
+        spinner.classList.add('d-none');
+        document.getElementById('btnText').textContent = 'Analyze Student Risk';
+        document.getElementById('progressBar').classList.add('d-none');
+    }
+}
+
+// Display results
+function displayResults(data) {
+    const resultsSection = document.getElementById('resultsSection');
+    const resultsTableBody = document.getElementById('resultsTableBody');
+
+    // Show results section
+    resultsSection.classList.remove('d-none');
+
+    // Update summary
+    document.getElementById('highCount').textContent = data.summary.High || 0;
+    document.getElementById('mediumCount').textContent = data.summary.Medium || 0;
+    document.getElementById('lowCount').textContent = data.summary.Low || 0;
+    document.getElementById('totalCount').textContent = data.summary.Total || 0;
+    
+    // Calculate and display average grade and attendance
+    if (data.results && data.results.length > 0) {
+        const avgGrade = data.results.reduce((sum, r) => sum + r.grade_pct, 0) / data.results.length;
+        const avgAttendance = data.results.reduce((sum, r) => sum + r.attendance_pct, 0) / data.results.length;
+        
+        document.getElementById('avgGrade').textContent = avgGrade.toFixed(1) + '%';
+        document.getElementById('avgAttendance').textContent = avgAttendance.toFixed(1) + '%';
+        document.getElementById('additionalStats').classList.remove('d-none');
+    }
+
+    // Clear table
+    resultsTableBody.innerHTML = '';
+
+    // Populate table
+    data.results.forEach(result => {
+        const row = createTableRow(result);
+        resultsTableBody.appendChild(row);
+    });
+
+    // Initialize tooltips
+    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+}
+
+// Create table row
+function createTableRow(result) {
+    const row = document.createElement('tr');
+
+    // Risk category badge
+    const badgeClass = `badge-${result.risk_category.toLowerCase()}`;
+    const badge = `<span class="badge ${badgeClass}">${result.risk_category}</span>`;
+
+    // Student name with link
+    const studentNameLink = `<a href="${result.campus_login_url}" target="_blank">${result.student_name}</a>`;
+
+    // Explanation tooltip
+    let explanationAttr = '';
+    if (result.explanation) {
+        explanationAttr = `data-bs-toggle="tooltip" data-bs-placement="top" title="${result.explanation}"`;
+    }
+
+    row.innerHTML = `
+        <td>${studentNameLink}</td>
+        <td>${result.program_name}</td>
+        <td>${result.grade_pct.toFixed(1)}%</td>
+        <td>${result.attendance_pct.toFixed(1)}%</td>
+        <td ${explanationAttr}>${result.risk_score.toFixed(1)}</td>
+        <td>${badge}</td>
+        <td>
+            <button class="btn btn-sm brukd-btn-primary btn-action" onclick="openCampusLogin('${result.campus_login_url.replace(/'/g, "\\'")}')">
+                Open Campus Login
+            </button>
+            <button class="btn btn-sm brukd-btn-secondary btn-action" onclick="showEmailDraft('${result.student_id.replace(/'/g, "\\'")}', '${result.risk_category}', '${result.program_name.replace(/'/g, "\\'")}', ${result.grade_pct}, ${result.attendance_pct})">
+                Email Draft
+            </button>
+        </td>
+    `;
+
+    return row;
+}
+
+// Handle search
+function handleSearch(e) {
+    const searchTerm = e.target.value.toLowerCase();
+    const rows = document.querySelectorAll('#resultsTableBody tr');
+
+    rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        if (text.includes(searchTerm)) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+}
+
+// Open campus login
+function openCampusLogin(url) {
+    window.open(url, '_blank');
+}
+
+// Show email draft modal
+async function showEmailDraft(studentId, riskCategory, program, gradePct, attendancePct) {
+    try {
+        const response = await fetch('/email-draft', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                student_id: studentId,
+                risk_category: riskCategory,
+                program: program,
+                grade_pct: gradePct,
+                attendance_pct: attendancePct
+            })
+        });
+
+        // Check if response is JSON
+        const contentType = response.headers.get('content-type');
+        let data;
+        
+        if (contentType && contentType.includes('application/json')) {
+            data = await response.json();
+        } else {
+            // If not JSON, read as text to get error message
+            const text = await response.text();
+            throw new Error(`Server error: ${response.status} ${response.statusText}. ${text.substring(0, 200)}`);
+        }
+
+        if (!response.ok) {
+            throw new Error(data.detail || data.message || 'Failed to generate email draft');
+        }
+
+        // Populate modal
+        document.getElementById('emailSubject').value = data.subject;
+        document.getElementById('emailBody').value = data.body;
+
+        // Store email data for copying
+        window.currentEmailData = data;
+
+        // Show modal
+        const modal = new bootstrap.Modal(document.getElementById('emailModal'));
+        modal.show();
+
+    } catch (error) {
+        // Handle JSON parsing errors
+        if (error instanceof SyntaxError) {
+            alert('Server returned invalid response. Please check the server logs.');
+        } else {
+            alert('Error generating email draft: ' + error.message);
+        }
+    }
+}
+
+// Copy email to clipboard
+function handleCopyEmail() {
+    const emailData = window.currentEmailData;
+    if (!emailData) {
+        return;
+    }
+
+    const emailText = `Subject: ${emailData.subject}\n\n${emailData.body}`;
+
+    navigator.clipboard.writeText(emailText).then(() => {
+        const btn = document.getElementById('copyEmailBtn');
+        const originalText = btn.textContent;
+        btn.textContent = 'Copied!';
+        btn.classList.add('btn-success');
+        btn.classList.remove('btn-primary');
+
+        setTimeout(() => {
+            btn.textContent = originalText;
+            btn.classList.remove('btn-success');
+            btn.classList.add('btn-primary');
+        }, 2000);
+    }).catch(err => {
+        alert('Failed to copy email: ' + err.message);
+    });
+}
+
+// Export CSV
+function handleExportCsv() {
+    window.location.href = '/download.csv';
+}
+
+// Show error message
+function showError(message) {
+    const errorAlert = document.getElementById('errorAlert');
+    const errorMessage = document.getElementById('errorMessage');
+    errorMessage.textContent = message;
+    errorAlert.classList.remove('d-none');
+    errorAlert.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// Show success message
+function showSuccess(message) {
+    const successAlert = document.getElementById('successAlert');
+    const successMessage = document.getElementById('successMessage');
+    successMessage.textContent = message;
+    successAlert.classList.remove('d-none');
+    successAlert.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
