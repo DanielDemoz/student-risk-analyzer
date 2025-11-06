@@ -873,12 +873,36 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     Uses outer join to include ALL students from both sheets.
     """
     # Ensure Student Name exists in both DataFrames (required for fallback merge)
-    if 'Student Name' not in grades_df.columns or 'Student Name' not in attendance_df.columns:
-        raise ValueError("Student Name column missing in one or both DataFrames")
+    grades_has_name = 'Student Name' in grades_df.columns
+    attendance_has_name = 'Student Name' in attendance_df.columns
+    
+    if not grades_has_name:
+        print(f"ERROR: 'Student Name' not found in grades_df. Available columns: {list(grades_df.columns)}")
+        # Try to create it
+        if len(grades_df) > 0:
+            grades_df['Student Name'] = 'Unknown'
+            print("WARNING: Created placeholder 'Student Name' column in grades_df")
+        else:
+            raise ValueError(f"Student Name column missing in grades DataFrame. Available columns: {list(grades_df.columns)}")
+    
+    if not attendance_has_name:
+        print(f"ERROR: 'Student Name' not found in attendance_df. Available columns: {list(attendance_df.columns)}")
+        # Try to create it
+        if len(attendance_df) > 0:
+            attendance_df['Student Name'] = 'Unknown'
+            print("WARNING: Created placeholder 'Student Name' column in attendance_df")
+        else:
+            raise ValueError(f"Student Name column missing in attendance DataFrame. Available columns: {list(attendance_df.columns)}")
     
     # Clean Student Name for consistent matching
-    grades_df['Student Name'] = grades_df['Student Name'].astype(str).str.strip()
-    attendance_df['Student Name'] = attendance_df['Student Name'].astype(str).str.strip()
+    try:
+        grades_df['Student Name'] = grades_df['Student Name'].astype(str).str.strip()
+        attendance_df['Student Name'] = attendance_df['Student Name'].astype(str).str.strip()
+    except Exception as e:
+        print(f"ERROR: Failed to clean Student Name columns: {e}")
+        print(f"grades_df['Student Name'] type: {type(grades_df.get('Student Name'))}")
+        print(f"attendance_df['Student Name'] type: {type(attendance_df.get('Student Name'))}")
+        raise ValueError(f"Failed to process Student Name column: {e}")
     
     # Try merging by Student# first (if both have it)
     merged = None
