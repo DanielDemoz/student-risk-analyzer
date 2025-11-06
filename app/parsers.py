@@ -78,7 +78,9 @@ def normalize_and_rename_columns(df: pd.DataFrame, sheet_type: str) -> pd.DataFr
         # Try to find a match in target_mappings
         for target_name, variations in target_mappings.items():
             if normalized in variations:
-                actual_rename[orig_col] = target_name
+                # Only rename if target_name doesn't already exist (avoid duplicates)
+                if target_name not in df.columns or target_name not in actual_rename.values():
+                    actual_rename[orig_col] = target_name
                 break
     
     # Apply renaming
@@ -89,8 +91,15 @@ def normalize_and_rename_columns(df: pd.DataFrame, sheet_type: str) -> pd.DataFr
     else:
         print(f"WARNING: No columns were renamed in {sheet_type} sheet. Original columns: {list(df.columns)}")
     
+    # Remove duplicate columns (keep first occurrence)
+    if df.columns.duplicated().any():
+        print(f"WARNING: Found duplicate columns in {sheet_type} sheet: {df.columns[df.columns.duplicated()].tolist()}")
+        df = df.loc[:, ~df.columns.duplicated(keep='first')]
+        print(f"DEBUG: After removing duplicates: {list(df.columns)}")
+    
     # Ensure required columns exist - if not found, try to create them or use closest match
     if sheet_type == "grades":
+        # Handle Student Name
         if "Student Name" not in df.columns:
             # Try to find any column that might be student name
             for col in df.columns:
@@ -102,8 +111,16 @@ def normalize_and_rename_columns(df: pd.DataFrame, sheet_type: str) -> pd.DataFr
                 # If still not found, create a placeholder column
                 print("WARNING: 'Student Name' column not found, creating placeholder")
                 df["Student Name"] = "Unknown"
+        
+        # Handle Student# - make it optional, create if missing
+        if "Student#" not in df.columns:
+            print("WARNING: 'Student#' column not found in grades sheet, will create sequential IDs")
+            # Create sequential Student# based on index
+            df["Student#"] = range(1, len(df) + 1)
+            print(f"DEBUG: Created Student# column with {len(df)} sequential IDs")
     
     elif sheet_type == "attendance":
+        # Handle Student Name
         if "Student Name" not in df.columns:
             # Try to find any column that might be student name
             for col in df.columns:
@@ -115,6 +132,13 @@ def normalize_and_rename_columns(df: pd.DataFrame, sheet_type: str) -> pd.DataFr
                 # If still not found, create a placeholder column
                 print("WARNING: 'Student Name' column not found, creating placeholder")
                 df["Student Name"] = "Unknown"
+        
+        # Handle Student# - make it optional, create if missing
+        if "Student#" not in df.columns:
+            print("WARNING: 'Student#' column not found in attendance sheet, will create sequential IDs")
+            # Create sequential Student# based on index
+            df["Student#"] = range(1, len(df) + 1)
+            print(f"DEBUG: Created Student# column with {len(df)} sequential IDs")
     
     return df
 
@@ -690,29 +714,30 @@ def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str,
             attendance_df['Campus Login URL'] = None
     
     # Validate required columns (case-insensitive, after normalization)
-    required_grades_cols = ['Student#', 'Student Name', 'Program Name', 'current overall Program Grade']
-    required_attendance_cols = ['Student#', 'Student Name', 'Scheduled Hours to Date', 
+    # Note: Student# is now optional (will be created if missing)
+    required_grades_cols = ['Student Name', 'Program Name', 'current overall Program Grade']
+    required_attendance_cols = ['Student Name', 'Scheduled Hours to Date', 
                                 'Attended Hours to Date', 'Attended % to Date.', 
                                 'Missed Hours to Date', '% Missed', 'Missed Minus Excused to date']
     
     # Check for column name variations (case-insensitive, handle whitespace, dots, %)
     # Normalize column names for comparison
-    def normalize_col_name(col_name):
-        return re.sub(r'\s+', ' ', col_name.lower().strip().replace('.', '').replace('%', '').replace(',', ''))
+    def normalize_col_name_for_validation(col_name):
+        return re.sub(r'\s+', ' ', str(col_name).lower().strip().replace('.', '').replace('%', '').replace(',', ''))
     
-    grades_cols_normalized = {normalize_col_name(col): col for col in grades_df.columns}
-    attendance_cols_normalized = {normalize_col_name(col): col for col in attendance_df.columns}
+    grades_cols_normalized = {normalize_col_name_for_validation(col): col for col in grades_df.columns}
+    attendance_cols_normalized = {normalize_col_name_for_validation(col): col for col in attendance_df.columns}
     
     missing_grades = []
     missing_attendance = []
     
     for req_col in required_grades_cols:
-        req_col_normalized = normalize_col_name(req_col)
+        req_col_normalized = normalize_col_name_for_validation(req_col)
         if req_col_normalized not in grades_cols_normalized:
             missing_grades.append(req_col)
     
     for req_col in required_attendance_cols:
-        req_col_normalized = normalize_col_name(req_col)
+        req_col_normalized = normalize_col_name_for_validation(req_col)
         if req_col_normalized not in attendance_cols_normalized:
             missing_attendance.append(req_col)
     
@@ -724,7 +749,8 @@ def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str,
             error_msg += f"  Attendance sheet: {missing_attendance}\n"
         error_msg += f"\nFound columns:\n"
         error_msg += f"  Grades: {list(grades_df.columns)}\n"
-        error_msg += f"  Attendance: {list(attendance_df.columns)}"
+        error_msg += f"  Attendance: {list(attendance_df.columns)}\n"
+        error_msg += f"\nNote: Student# is optional and will be auto-generated if missing."
         raise ValueError(error_msg)
     
     return grades_df, attendance_df, name_hyperlinks
