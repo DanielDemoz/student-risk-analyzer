@@ -757,18 +757,21 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
             merged['Campus Login URL'] = None
     
     # Preserve attendance_pct from attendance sheet (critical!)
-    print(f"\n=== DEBUG: merge_data - PRESERVING attendance_pct ===")
+    # Also ensure grade_pct is preserved from grades sheet
+    print(f"\n=== DEBUG: merge_data - PRESERVING attendance_pct and grade_pct ===")
+    
+    # Handle attendance_pct
     if 'attendance_pct' not in merged.columns:
         print("attendance_pct not in merged.columns, checking for suffixed versions...")
         # Check if it exists with suffix
         if 'attendance_pct_attendance' in merged.columns:
             print(f"Found attendance_pct_attendance, values: {merged['attendance_pct_attendance'].head(3).tolist()}")
-            merged['attendance_pct'] = merged['attendance_pct_attendance']
+            merged['attendance_pct'] = merged['attendance_pct_attendance'].fillna(0.0)
             merged = merged.drop(columns=['attendance_pct_attendance'])
             print(f"Set attendance_pct from attendance_pct_attendance: {merged['attendance_pct'].head(3).tolist()}")
         elif 'attendance_pct_grades' in merged.columns:
             print(f"Found attendance_pct_grades, values: {merged['attendance_pct_grades'].head(3).tolist()}")
-            merged['attendance_pct'] = merged['attendance_pct_grades']
+            merged['attendance_pct'] = merged['attendance_pct_grades'].fillna(0.0)
             merged = merged.drop(columns=['attendance_pct_grades'])
             print(f"Set attendance_pct from attendance_pct_grades: {merged['attendance_pct'].head(3).tolist()}")
         else:
@@ -780,15 +783,30 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
                 if 'attended' in col_lower and ('%' in str(col) or 'pct' in col_lower):
                     found_col = col
                     print(f"Found column '{col}', values: {merged[col].head(3).tolist()}")
-                    merged['attendance_pct'] = merged[col]
+                    merged['attendance_pct'] = merged[col].fillna(0.0)
                     print(f"Set attendance_pct from '{col}': {merged['attendance_pct'].head(3).tolist()}")
                     break
             if not found_col:
                 print("WARNING: No attendance percentage column found, setting to 0.0")
                 merged['attendance_pct'] = 0.0
     else:
+        merged['attendance_pct'] = merged['attendance_pct'].fillna(0.0)
         print(f"attendance_pct already in merged.columns, values: {merged['attendance_pct'].head(3).tolist()}")
     
+    # Handle grade_pct - ensure it exists and fill missing values with 0
+    if 'grade_pct' not in merged.columns:
+        if 'grade_pct_grades' in merged.columns:
+            merged['grade_pct'] = merged['grade_pct_grades'].fillna(0.0)
+            merged = merged.drop(columns=['grade_pct_grades'])
+        elif 'grade_pct_attendance' in merged.columns:
+            merged['grade_pct'] = merged['grade_pct_attendance'].fillna(0.0)
+            merged = merged.drop(columns=['grade_pct_attendance'])
+        else:
+            merged['grade_pct'] = 0.0
+    else:
+        merged['grade_pct'] = merged['grade_pct'].fillna(0.0)
+    
+    print(f"Final merged shape: {merged.shape}, grade_pct non-null: {merged['grade_pct'].notna().sum()}, attendance_pct non-null: {merged['attendance_pct'].notna().sum()}")
     print(f"=== END DEBUG: merge_data ===\n")
     
     # Deduplicate by Student# (keep last row)
