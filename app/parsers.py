@@ -676,42 +676,36 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
                 grades_df['Student#'] = grades_df['Student#'].astype(str).str.strip()
                 attendance_df['Student#'] = attendance_df['Student#'].astype(str).str.strip()
     
-    # Merge on Student# - try inner join first, fallback to left if no matches
+    # Merge on Student# using outer join to include ALL students from both sheets
+    # This ensures students with only grades OR only attendance are included
+    print(f"Before merge - grades_df: {len(grades_df)} rows, attendance_df: {len(attendance_df)} rows")
+    print(f"Unique Student# in grades: {grades_df['Student#'].nunique()}, in attendance: {attendance_df['Student#'].nunique()}")
+    
     merged = pd.merge(
         grades_df,
         attendance_df,
         on='Student#',
-        how='inner',  # Use inner join to only keep students present in both sheets
+        how='outer',  # Use outer join to include ALL students from both sheets
         suffixes=('_grades', '_attendance')
     )
     
-    print(f"After merge with inner join, merged shape: {merged.shape}")
+    print(f"After merge with outer join, merged shape: {merged.shape}")
+    print(f"Total unique students after merge: {merged['Student#'].nunique()}")
     
-    # If inner join resulted in no matches, try left join and show warning
+    # If merge resulted in no records, something is wrong
     if len(merged) == 0:
-        print("WARNING: Inner join resulted in 0 records. Trying left join...")
+        print("WARNING: Outer join resulted in 0 records. This should not happen.")
         print(f"grades_df Student# unique count: {grades_df['Student#'].nunique()}")
         print(f"attendance_df Student# unique count: {attendance_df['Student#'].nunique()}")
-        print(f"grades_df Student# values: {sorted(grades_df['Student#'].unique().tolist())[:10]}")
-        print(f"attendance_df Student# values: {sorted(attendance_df['Student#'].unique().tolist())[:10]}")
+        print(f"grades_df Student# sample values: {sorted(grades_df['Student#'].unique().tolist())[:10]}")
+        print(f"attendance_df Student# sample values: {sorted(attendance_df['Student#'].unique().tolist())[:10]}")
         
-        # Try left join as fallback
-        merged = pd.merge(
-            grades_df,
-            attendance_df,
-            on='Student#',
-            how='left',  # Fallback to left join
-            suffixes=('_grades', '_attendance')
+        raise ValueError(
+            f"No records found after merge. "
+            f"Grades sheet has {len(grades_df)} rows, "
+            f"Attendance sheet has {len(attendance_df)} rows. "
+            f"Student# values may not match between sheets."
         )
-        print(f"After left join fallback, merged shape: {merged.shape}")
-        
-        if len(merged) == 0:
-            raise ValueError(
-                f"No records found after merge. "
-                f"Grades sheet has {len(grades_df)} rows, "
-                f"Attendance sheet has {len(attendance_df)} rows. "
-                f"Student# values may not match between sheets."
-            )
     
     print(f"\n=== DEBUG: merge_data - AFTER MERGE ===")
     print(f"merged shape: {merged.shape}")
@@ -725,7 +719,7 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     if 'Attended % to Date.' in merged.columns:
         print(f"merged has 'Attended % to Date.': {merged['Attended % to Date.'].head(3).tolist()}")
     
-    # Prefer Grades sheet name
+    # Prefer Grades sheet name, but use attendance if grades is missing
     if 'Student Name_grades' in merged.columns and 'Student Name_attendance' in merged.columns:
         merged['Student Name'] = merged['Student Name_grades'].fillna(merged['Student Name_attendance'])
         merged = merged.drop(columns=['Student Name_grades', 'Student Name_attendance'])
@@ -735,13 +729,23 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     elif 'Student Name_attendance' in merged.columns:
         merged['Student Name'] = merged['Student Name_attendance']
         merged = merged.drop(columns=['Student Name_attendance'])
+    else:
+        # If neither exists, create empty column
+        merged['Student Name'] = 'Unknown'
     
-    # Prefer Grades sheet program name
+    # Prefer Grades sheet program name, but use attendance if grades is missing
     if 'Program Name' in merged.columns:
-        pass  # Already from grades
+        # Already from grades, keep as is
+        pass
+    elif 'Program Name_grades' in merged.columns:
+        merged['Program Name'] = merged['Program Name_grades']
+        merged = merged.drop(columns=['Program Name_grades'])
     elif 'Program Name_attendance' in merged.columns:
         merged['Program Name'] = merged['Program Name_attendance']
         merged = merged.drop(columns=['Program Name_attendance'])
+    else:
+        # If neither exists, create empty column
+        merged['Program Name'] = 'Unknown'
     
     # Preserve Campus Login URL from attendance sheet (if it exists)
     if 'Campus Login URL' not in merged.columns:
