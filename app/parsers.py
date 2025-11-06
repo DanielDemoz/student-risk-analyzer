@@ -279,14 +279,25 @@ def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str,
         # Extract hyperlinks
         if header_row and student_id_col and student_name_col:
             for row in grades_sheet.iter_rows(min_row=header_row + 1):
-                student_id_cell = row[student_id_col - 1]
-                student_name_cell = row[student_name_col - 1]
-                
-                if student_id_cell.value and student_name_cell.value:
-                    student_id = str(student_id_cell.value).strip()
-                    hyperlink = extract_hyperlink_from_cell(student_name_cell)
-                    if hyperlink:
-                        name_hyperlinks[student_id] = hyperlink
+                # Check if row has enough columns
+                if len(row) < max(student_id_col, student_name_col):
+                    continue
+                try:
+                    student_id_cell = row[student_id_col - 1]
+                    student_name_cell = row[student_name_col - 1]
+                    
+                    if student_id_cell.value and student_name_cell.value:
+                        # Convert Student# to numeric for consistent matching
+                        try:
+                            student_id = str(int(float(student_id_cell.value)))
+                        except (ValueError, TypeError):
+                            student_id = str(student_id_cell.value).strip()
+                        hyperlink = extract_hyperlink_from_cell(student_name_cell)
+                        if hyperlink:
+                            name_hyperlinks[student_id] = hyperlink
+                except (IndexError, TypeError) as e:
+                    # Skip rows that don't have enough columns or have invalid data
+                    continue
     
     # Load dataframes using pandas
     excel_file = BytesIO(file_bytes)
