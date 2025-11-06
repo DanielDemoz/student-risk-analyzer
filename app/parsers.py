@@ -564,6 +564,26 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     Prefers Grades sheet name for display.
     Preserves Campus Login URL from attendance sheet.
     """
+    # Debug: Check what we're merging
+    print(f"\n=== DEBUG: merge_data - BEFORE MERGE ===")
+    print(f"grades_df columns: {list(grades_df.columns)}")
+    print(f"grades_df shape: {grades_df.shape}")
+    if 'attendance_pct' in grades_df.columns:
+        print(f"grades_df has attendance_pct: {grades_df['attendance_pct'].head(3).tolist()}")
+    
+    print(f"attendance_df columns: {list(attendance_df.columns)}")
+    print(f"attendance_df shape: {attendance_df.shape}")
+    if 'attendance_pct' in attendance_df.columns:
+        print(f"attendance_df has attendance_pct: {attendance_df['attendance_pct'].head(3).tolist()}")
+    if 'Attended % to Date.' in attendance_df.columns:
+        print(f"attendance_df has 'Attended % to Date.': {attendance_df['Attended % to Date.'].head(3).tolist()}")
+    
+    # Check Student# columns
+    if 'Student#' in grades_df.columns:
+        print(f"grades_df Student# sample: {grades_df['Student#'].head(3).tolist()}")
+    if 'Student#' in attendance_df.columns:
+        print(f"attendance_df Student# sample: {attendance_df['Student#'].head(3).tolist()}")
+    
     # Merge on Student#
     merged = pd.merge(
         grades_df,
@@ -572,6 +592,18 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
         how='left',
         suffixes=('_grades', '_attendance')
     )
+    
+    print(f"\n=== DEBUG: merge_data - AFTER MERGE ===")
+    print(f"merged shape: {merged.shape}")
+    print(f"merged columns: {list(merged.columns)}")
+    if 'attendance_pct' in merged.columns:
+        print(f"merged has attendance_pct: {merged['attendance_pct'].head(3).tolist()}")
+    if 'attendance_pct_attendance' in merged.columns:
+        print(f"merged has attendance_pct_attendance: {merged['attendance_pct_attendance'].head(3).tolist()}")
+    if 'attendance_pct_grades' in merged.columns:
+        print(f"merged has attendance_pct_grades: {merged['attendance_pct_grades'].head(3).tolist()}")
+    if 'Attended % to Date.' in merged.columns:
+        print(f"merged has 'Attended % to Date.': {merged['Attended % to Date.'].head(3).tolist()}")
     
     # Prefer Grades sheet name
     if 'Student Name_grades' in merged.columns and 'Student Name_attendance' in merged.columns:

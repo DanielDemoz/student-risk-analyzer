@@ -259,16 +259,28 @@ async def upload_file(
             attendance_pct = 0.0
             if 'attendance_pct' in row.index:
                 attendance_pct = clean_numeric_value(row.get('attendance_pct', 0))
+                if idx < 3:  # Debug first 3 rows
+                    print(f"DEBUG main.py: Row {idx} - Found attendance_pct: {attendance_pct}")
             elif 'attendance_pct_attendance' in row.index:
                 attendance_pct = clean_numeric_value(row.get('attendance_pct_attendance', 0))
+                if idx < 3:
+                    print(f"DEBUG main.py: Row {idx} - Found attendance_pct_attendance: {attendance_pct}")
             elif 'attendance_pct_grades' in row.index:
                 attendance_pct = clean_numeric_value(row.get('attendance_pct_grades', 0))
+                if idx < 3:
+                    print(f"DEBUG main.py: Row {idx} - Found attendance_pct_grades: {attendance_pct}")
             else:
                 # Try to find any column with attendance percentage
+                found_col = None
                 for col in row.index:
                     if 'attendance' in str(col).lower() and ('%' in str(col) or 'pct' in str(col).lower()):
+                        found_col = col
                         attendance_pct = clean_numeric_value(row.get(col, 0))
+                        if idx < 3:
+                            print(f"DEBUG main.py: Row {idx} - Found column '{col}': {attendance_pct}")
                         break
+                if not found_col and idx < 3:
+                    print(f"DEBUG main.py: Row {idx} - No attendance column found! Available columns: {list(row.index)}")
             
             risk_score = clean_numeric_value(risk_scores[idx] if idx < len(risk_scores) else 0)
             
