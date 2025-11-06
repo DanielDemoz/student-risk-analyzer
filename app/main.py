@@ -342,8 +342,10 @@ async def upload_file(
             )
             results.append(result)
         
-        # Sort by risk score (descending) - highest risk first
-        results.sort(key=lambda x: x.risk_score, reverse=True)
+        # Sort by data status first (Complete > Missing Attendance > Missing Grade > Missing Both)
+        # Then by risk score (descending) - highest risk first
+        status_priority = {'Complete': 0, 'Missing Attendance': 1, 'Missing Grade': 2, 'Missing Both': 3}
+        results.sort(key=lambda x: (status_priority.get(x.data_status, 3), -x.risk_score))
         
         # Generate session ID
         session_id = datetime.now().isoformat()
