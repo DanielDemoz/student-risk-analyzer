@@ -9,6 +9,66 @@ from openpyxl import load_workbook
 from openpyxl.cell.cell import Cell
 
 
+def clean_student_id(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Standardize Student# column so merge keys match.
+    Extracts digits only and converts to numeric.
+    """
+    if "Student#" in df.columns:
+        # Convert to string first, then extract digits only
+        df["Student#"] = (
+            df["Student#"]
+            .astype(str)
+            .str.extract(r"(\d+)", expand=False)  # Extract digits only
+        )
+        df["Student#"] = pd.to_numeric(df["Student#"], errors="coerce")
+    return df
+
+
+def clean_attendance_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Clean, convert, and normalize attendance data.
+    Removes total/summary rows, converts time columns, normalizes percentages.
+    """
+    df = df.copy()
+    
+    # Remove total/summary rows
+    if "Student Name" in df.columns:
+        # Remove rows where Student Name contains "Total", "Summary", or is empty
+        mask = (
+            ~df["Student Name"].astype(str).str.contains("Total", case=False, na=False) &
+            ~df["Student Name"].astype(str).str.contains("Summary", case=False, na=False) &
+            ~df["Student Name"].astype(str).str.strip().eq("") &
+            df["Student Name"].notna()
+        )
+        df = df[mask].copy()
+        print(f"DEBUG: Removed summary rows, remaining rows: {len(df)}")
+    
+    # Convert HH:MM columns to decimal hours
+    time_columns = [
+        "Scheduled Hours to Date",
+        "Attended Hours to Date",
+        "Missed Hours to Date",
+        "Missed Minus Excused to date",
+    ]
+    
+    for col in time_columns:
+        if col in df.columns:
+            df[col] = df[col].apply(to_hours)
+    
+    # Normalize % columns
+    percentage_columns = ["Attended % to Date.", "% Missed"]
+    
+    for col in percentage_columns:
+        if col in df.columns:
+            df[col] = df[col].apply(normalize_pct)
+    
+    # Replace NaN and invalid values
+    df = df.replace([np.inf, -np.inf, np.nan], 0)
+    
+    return df
+
+
 def to_hours(value) -> float:
     """
     Convert time strings like '90:00' to numeric hours.
@@ -370,6 +430,10 @@ def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str,
     # Load attendance dataframe
     attendance_df = pd.read_excel(excel_file, sheet_name=attendance_sheet_name, engine='openpyxl')
     
+    # Normalize column names (strip whitespace, handle variations) BEFORE cleaning
+    grades_df.columns = grades_df.columns.str.strip()
+    attendance_df.columns = attendance_df.columns.str.strip()
+    
     # Debug: Print raw attendance DataFrame info
     print(f"\n=== DEBUG: Raw attendance DataFrame after pd.read_excel ===")
     print(f"Shape: {attendance_df.shape}")
@@ -387,9 +451,41 @@ def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str,
                 print(f"Found similar column: '{col}' with values: {attendance_df[col].head(3).tolist()}")
     print(f"=== END DEBUG: Raw attendance DataFrame ===\n")
     
-    # Normalize column names (strip whitespace, handle variations) BEFORE adding Campus Login URL
-    grades_df.columns = grades_df.columns.str.strip()
-    attendance_df.columns = attendance_df.columns.str.strip()
+    # Clean Student# in both DataFrames to ensure matching
+    print("=== DEBUG: Cleaning Student# columns ===")
+    grades_df = clean_student_id(grades_df)
+    attendance_df = clean_student_id(attendance_df)
+    print(f"After cleaning - grades_df Student# sample: {grades_df['Student#'].head(3).tolist() if 'Student#' in grades_df.columns else 'N/A'}")
+    print(f"After cleaning - attendance_df Student# sample: {attendance_df['Student#'].head(3).tolist() if 'Student#' in attendance_df.columns else 'N/A'}")
+    
+    # Clean attendance DataFrame (remove totals, convert times, normalize percentages)
+    print("=== DEBUG: Cleaning attendance DataFrame ===")
+    attendance_df = clean_attendance_df(attendance_df)
+    print(f"After cleaning attendance_df, shape: {attendance_df.shape}")
+    
+    # Drop rows missing Student# or Student Name
+    print("=== DEBUG: Dropping rows with missing Student# or Student Name ===")
+    initial_grades = len(grades_df)
+    initial_attendance = len(attendance_df)
+    
+    if 'Student#' in grades_df.columns and 'Student Name' in grades_df.columns:
+        grades_df = grades_df.dropna(subset=["Student#", "Student Name"])
+        print(f"Grades: Dropped {initial_grades - len(grades_df)} rows with missing Student# or Student Name")
+    
+    if 'Student#' in attendance_df.columns and 'Student Name' in attendance_df.columns:
+        attendance_df = attendance_df.dropna(subset=["Student#", "Student Name"])
+        print(f"Attendance: Dropped {initial_attendance - len(attendance_df)} rows with missing Student# or Student Name")
+    
+    # Ensure both DataFrames use the same data type for Student#
+    if 'Student#' in grades_df.columns and 'Student#' in attendance_df.columns:
+        try:
+            grades_df["Student#"] = grades_df["Student#"].fillna(0).astype(int)
+            attendance_df["Student#"] = attendance_df["Student#"].fillna(0).astype(int)
+            print(f"Converted Student# to int - grades sample: {grades_df['Student#'].head(3).tolist()}, attendance sample: {attendance_df['Student#'].head(3).tolist()}")
+        except (ValueError, TypeError) as e:
+            print(f"Warning: Could not convert Student# to int: {e}, keeping as numeric")
+            grades_df["Student#"] = pd.to_numeric(grades_df["Student#"], errors='coerce').fillna(0)
+            attendance_df["Student#"] = pd.to_numeric(attendance_df["Student#"], errors='coerce').fillna(0)
     
     # Add Campus Login URL column to attendance_df (after column normalization)
     # First, ensure Student# is numeric for consistent matching
