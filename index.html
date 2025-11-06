@@ -37,6 +37,158 @@
                 </div>
             </section>
 
+            <!-- Risk Calculation Info Section -->
+            <section class="brukd-section mb-4">
+                <div class="card brukd-card shadow-sm">
+                    <div class="card-body p-3">
+                        <button class="btn btn-link text-decoration-none p-0 w-100 text-start" type="button" data-bs-toggle="collapse" data-bs-target="#riskCalcCollapse" aria-expanded="false">
+                            <small><strong>📊 Risk Calculation Methodology</strong></small>
+                        </button>
+                        <div class="collapse mt-3" id="riskCalcCollapse">
+                            <div class="small">
+                                <h6 class="fw-bold mb-2">Risk Score Calculation:</h6>
+                                <p class="mb-2">The risk score is calculated using a weighted formula:</p>
+                                <div class="bg-light p-3 rounded mb-3">
+                                    <code class="text-dark">
+                                        Risk Score = 0.6 × (100 - Grade%) + 0.4 × (100 - Attendance%)
+                                    </code>
+                                </div>
+                                <p class="mb-2"><strong>Explanation:</strong></p>
+                                <ul class="mb-3">
+                                    <li><strong>60% weight</strong> on grade performance</li>
+                                    <li><strong>40% weight</strong> on attendance</li>
+                                    <li>Higher risk score = more at risk (scale: 0-100)</li>
+                                </ul>
+
+                                <h6 class="fw-bold mb-2">Risk Category Classification:</h6>
+                                <p class="mb-2">Students are classified into three risk categories based on their risk score:</p>
+                                <ul class="mb-3">
+                                    <li><strong class="text-danger">HIGH RISK:</strong> Risk Score ≥ 80</li>
+                                    <li><strong class="text-warning">MEDIUM RISK:</strong> Risk Score ≥ 60 and < 80</li>
+                                    <li><strong class="text-success">LOW RISK:</strong> Risk Score < 60</li>
+                                </ul>
+
+                                <h6 class="fw-bold mb-2">Simple Rule Flag:</h6>
+                                <p class="mb-2">A student is flagged by the simple rule if:</p>
+                                <div class="bg-light p-3 rounded mb-3">
+                                    <code class="text-dark">
+                                        Grade < 70% OR Attendance < 70%
+                                    </code>
+                                </div>
+
+                                <h6 class="fw-bold mb-2">Example Calculations:</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-bordered">
+                                        <thead>
+                                            <tr>
+                                                <th>Grade %</th>
+                                                <th>Attendance %</th>
+                                                <th>Calculation</th>
+                                                <th>Risk Score</th>
+                                                <th>Category</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td>50%</td>
+                                                <td>60%</td>
+                                                <td>0.6×(100-50) + 0.4×(100-60)</td>
+                                                <td>46.0</td>
+                                                <td><span class="badge bg-success">LOW</span></td>
+                                            </tr>
+                                            <tr>
+                                                <td>65%</td>
+                                                <td>70%</td>
+                                                <td>0.6×(100-65) + 0.4×(100-70)</td>
+                                                <td>33.0</td>
+                                                <td><span class="badge bg-success">LOW</span></td>
+                                            </tr>
+                                            <tr>
+                                                <td>60%</td>
+                                                <td>50%</td>
+                                                <td>0.6×(100-60) + 0.4×(100-50)</td>
+                                                <td>44.0</td>
+                                                <td><span class="badge bg-success">LOW</span></td>
+                                            </tr>
+                                            <tr>
+                                                <td>55%</td>
+                                                <td>55%</td>
+                                                <td>0.6×(100-55) + 0.4×(100-55)</td>
+                                                <td>45.0</td>
+                                                <td><span class="badge bg-success">LOW</span></td>
+                                            </tr>
+                                            <tr>
+                                                <td>50%</td>
+                                                <td>50%</td>
+                                                <td>0.6×(100-50) + 0.4×(100-50)</td>
+                                                <td>50.0</td>
+                                                <td><span class="badge bg-success">LOW</span></td>
+                                            </tr>
+                                            <tr>
+                                                <td>40%</td>
+                                                <td>60%</td>
+                                                <td>0.6×(100-40) + 0.4×(100-60)</td>
+                                                <td>52.0</td>
+                                                <td><span class="badge bg-success">LOW</span></td>
+                                            </tr>
+                                            <tr>
+                                                <td>30%</td>
+                                                <td>70%</td>
+                                                <td>0.6×(100-30) + 0.4×(100-70)</td>
+                                                <td>54.0</td>
+                                                <td><span class="badge bg-success">LOW</span></td>
+                                            </tr>
+                                            <tr>
+                                                <td>20%</td>
+                                                <td>80%</td>
+                                                <td>0.6×(100-20) + 0.4×(100-80)</td>
+                                                <td>56.0</td>
+                                                <td><span class="badge bg-success">LOW</span></td>
+                                            </tr>
+                                            <tr>
+                                                <td>10%</td>
+                                                <td>90%</td>
+                                                <td>0.6×(100-10) + 0.4×(100-90)</td>
+                                                <td>58.0</td>
+                                                <td><span class="badge bg-success">LOW</span></td>
+                                            </tr>
+                                            <tr>
+                                                <td>0%</td>
+                                                <td>100%</td>
+                                                <td>0.6×(100-0) + 0.4×(100-100)</td>
+                                                <td>60.0</td>
+                                                <td><span class="badge bg-warning">MEDIUM</span></td>
+                                            </tr>
+                                            <tr>
+                                                <td>30%</td>
+                                                <td>30%</td>
+                                                <td>0.6×(100-30) + 0.4×(100-30)</td>
+                                                <td>70.0</td>
+                                                <td><span class="badge bg-warning">MEDIUM</span></td>
+                                            </tr>
+                                            <tr>
+                                                <td>20%</td>
+                                                <td>20%</td>
+                                                <td>0.6×(100-20) + 0.4×(100-20)</td>
+                                                <td>80.0</td>
+                                                <td><span class="badge bg-danger">HIGH</span></td>
+                                            </tr>
+                                            <tr>
+                                                <td>0%</td>
+                                                <td>0%</td>
+                                                <td>0.6×(100-0) + 0.4×(100-0)</td>
+                                                <td>100.0</td>
+                                                <td><span class="badge bg-danger">HIGH</span></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- API Configuration (for advanced users) -->
             <section class="brukd-section mb-4">
                 <div class="card brukd-card shadow-sm">
