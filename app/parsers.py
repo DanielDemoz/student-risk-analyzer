@@ -123,6 +123,10 @@ def normalize_attendance_data(df: pd.DataFrame) -> pd.DataFrame:
     # Make a copy to avoid modifying the original
     df = df.copy()
     
+    # Debug: Print available columns before processing
+    print(f"\n=== DEBUG: normalize_attendance_data - Available columns ===")
+    print(f"Columns: {list(df.columns)}")
+    
     # Convert HH:MM text columns to decimal hours
     time_columns = [
         "Scheduled Hours to Date",
@@ -133,17 +137,46 @@ def normalize_attendance_data(df: pd.DataFrame) -> pd.DataFrame:
     
     for col in time_columns:
         if col in df.columns:
+            print(f"DEBUG: Converting time column '{col}' - Sample values before: {df[col].head(3).tolist()}")
             df[col] = df[col].apply(to_hours)
+            print(f"DEBUG: After conversion - Sample values: {df[col].head(3).tolist()}")
+        else:
+            # Try case-insensitive search
+            for actual_col in df.columns:
+                if col.lower().strip() == actual_col.lower().strip():
+                    print(f"DEBUG: Found column '{actual_col}' (case variation of '{col}')")
+                    print(f"DEBUG: Sample values before: {df[actual_col].head(3).tolist()}")
+                    df[col] = df[actual_col].apply(to_hours)
+                    print(f"DEBUG: After conversion - Sample values: {df[col].head(3).tolist()}")
+                    break
     
     # Normalize percentage columns
     percentage_columns = ["Attended % to Date.", "% Missed"]
     
     for col in percentage_columns:
         if col in df.columns:
+            print(f"DEBUG: Normalizing percentage column '{col}' - Sample values before: {df[col].head(3).tolist()}")
             df[col] = df[col].apply(normalize_pct)
+            print(f"DEBUG: After normalization - Sample values: {df[col].head(3).tolist()}")
+        else:
+            # Try case-insensitive search
+            for actual_col in df.columns:
+                if col.lower().strip() == actual_col.lower().strip():
+                    print(f"DEBUG: Found column '{actual_col}' (case variation of '{col}')")
+                    print(f"DEBUG: Sample values before: {df[actual_col].head(3).tolist()}")
+                    df[col] = df[actual_col].apply(normalize_pct)
+                    print(f"DEBUG: After normalization - Sample values: {df[col].head(3).tolist()}")
+                    break
     
-    # Replace invalid or missing values
-    df = df.replace([np.inf, -np.inf, np.nan], 0)
+    # Replace invalid or missing values (but preserve valid zeros)
+    # Only replace NaN, Infinity, and -Infinity
+    df = df.replace([np.inf, -np.inf], 0)
+    # Fill NaN values with 0 only for numeric columns
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+    for col in numeric_cols:
+        df[col] = df[col].fillna(0)
+    
+    print(f"=== END DEBUG: normalize_attendance_data ===\n")
     
     return df
 
@@ -423,27 +456,49 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
 
     # PREPROCESSING STEP: Automatically clean and normalize attendance data
     # This converts HH:MM strings to decimal hours, normalizes percentages, and replaces invalid values
+    print(f"\n=== DEBUG: Before normalize_attendance_data ===")
+    print(f"Columns in attendance_normalized: {list(attendance_normalized.columns)}")
+    if 'Attended % to Date.' in attendance_normalized.columns:
+        print(f"Sample 'Attended % to Date.' values: {attendance_normalized['Attended % to Date.'].head(3).tolist()}")
     attendance_normalized = normalize_attendance_data(attendance_normalized)
     
     # Extract attendance_pct from normalized "Attended % to Date." column
     if 'Attended % to Date.' in attendance_normalized.columns:
         attendance_normalized['attendance_pct'] = attendance_normalized['Attended % to Date.']
+        print(f"DEBUG: Set attendance_pct from 'Attended % to Date.' - Sample: {attendance_normalized['attendance_pct'].head(3).tolist()}")
     else:
-        # Column not found - try to calculate from hours
-        if 'Attended Hours to Date' in attendance_normalized.columns and 'Scheduled Hours to Date' in attendance_normalized.columns:
-            # Calculate attendance percentage from hours
-            scheduled_hours = attendance_normalized['Scheduled Hours to Date']
-            attended_hours = attendance_normalized['Attended Hours to Date']
-            
-            # Calculate percentage, handling division by zero
-            attendance_normalized['attendance_pct'] = (
-                (attended_hours / scheduled_hours.replace(0, np.nan) * 100.0)
-                .replace([np.inf, -np.inf, np.nan], 0.0)
-                .clip(0.0, 100.0)
-            )
-        else:
-            # Last resort: set to 0
-            attendance_normalized['attendance_pct'] = 0.0
+        # Try case-insensitive search for the column
+        found_col = None
+        for col in attendance_normalized.columns:
+            if 'attended' in col.lower() and '%' in col and 'date' in col.lower():
+                found_col = col
+                print(f"DEBUG: Found attendance percentage column: '{found_col}'")
+                attendance_normalized['attendance_pct'] = attendance_normalized[found_col]
+                print(f"DEBUG: Set attendance_pct from '{found_col}' - Sample: {attendance_normalized['attendance_pct'].head(3).tolist()}")
+                break
+        
+        if not found_col:
+            # Column not found - try to calculate from hours
+            print("DEBUG: 'Attended % to Date.' column not found, trying to calculate from hours")
+            if 'Attended Hours to Date' in attendance_normalized.columns and 'Scheduled Hours to Date' in attendance_normalized.columns:
+                # Calculate attendance percentage from hours
+                scheduled_hours = attendance_normalized['Scheduled Hours to Date']
+                attended_hours = attendance_normalized['Attended Hours to Date']
+                
+                print(f"DEBUG: Scheduled Hours sample: {scheduled_hours.head(3).tolist()}")
+                print(f"DEBUG: Attended Hours sample: {attended_hours.head(3).tolist()}")
+                
+                # Calculate percentage, handling division by zero
+                attendance_normalized['attendance_pct'] = (
+                    (attended_hours / scheduled_hours.replace(0, np.nan) * 100.0)
+                    .replace([np.inf, -np.inf, np.nan], 0.0)
+                    .clip(0.0, 100.0)
+                )
+                print(f"DEBUG: Calculated attendance_pct from hours - Sample: {attendance_normalized['attendance_pct'].head(3).tolist()}")
+            else:
+                # Last resort: set to 0
+                print("DEBUG: Could not find hours columns either, setting attendance_pct to 0")
+                attendance_normalized['attendance_pct'] = 0.0
     
     # Extract missed_pct from normalized "% Missed" column
     if '% Missed' in attendance_normalized.columns:
