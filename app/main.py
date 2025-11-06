@@ -346,20 +346,26 @@ async def upload_file(
                 risk_score = 0.0
             
             # Adjust risk category based on data status
-            try:
-                base_category = categories[row_idx] if row_idx < len(categories) else 'Low'
-            except (IndexError, KeyError, TypeError):
-                base_category = 'Low'
+            # Use direct grade/attendance classification for more accurate results
+            from app.risk import classify_risk_by_grade_attendance
             
-            # Override risk category if data is missing
-            if data_status == 'Missing Both':
-                risk_category = 'Insufficient Data'
-            elif data_status == 'Missing Grade':
-                risk_category = 'Missing Grade'
-            elif data_status == 'Missing Attendance':
-                risk_category = 'Missing Attendance'
-            else:
-                risk_category = base_category
+            try:
+                if data_status == 'Missing Both':
+                    risk_category = 'Insufficient Data'
+                elif data_status == 'Missing Grade':
+                    risk_category = 'Missing Grade'
+                elif data_status == 'Missing Attendance':
+                    risk_category = 'Missing Attendance'
+                elif data_status == 'Complete':
+                    # Use direct classification based on grade and attendance
+                    risk_category = classify_risk_by_grade_attendance(grade_pct, attendance_pct)
+                else:
+                    # Fallback to risk score-based category
+                    base_category = categories[row_idx] if row_idx < len(categories) else 'Low'
+                    risk_category = base_category
+            except (IndexError, KeyError, TypeError) as e:
+                print(f"Warning: Error classifying risk for row {row_idx}: {e}")
+                risk_category = 'Low'
             
             # Simple rule only applies if both values are available
             if data_status == 'Complete':

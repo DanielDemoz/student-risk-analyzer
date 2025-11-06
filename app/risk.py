@@ -173,12 +173,13 @@ def audit_and_recalculate_risk(df: pd.DataFrame) -> pd.DataFrame:
     # Create a copy to avoid modifying original
     df_audit = df.copy()
     
-    # --- Step 1. Clean and convert percentage columns ---
+    # --- Step 1. Clean and convert percentage columns with explicit numeric conversion ---
     if 'grade_pct' in df_audit.columns:
         df_audit['Grade %'] = (
             df_audit['grade_pct']
             .astype(str)
             .str.replace("%", "", regex=False)
+            .str.strip()
             .astype(float)
             .clip(0, 100)
         )
@@ -190,6 +191,7 @@ def audit_and_recalculate_risk(df: pd.DataFrame) -> pd.DataFrame:
             df_audit['attendance_pct']
             .astype(str)
             .str.replace("%", "", regex=False)
+            .str.strip()
             .astype(float)
             .clip(0, 100)
         )
