@@ -8,9 +8,41 @@ from openpyxl import load_workbook
 from openpyxl.cell.cell import Cell
 
 
+def to_hours(value) -> float:
+    """
+    Convert time strings like '90:00' to numeric hours.
+    Handles both string formats and numeric values.
+    
+    Args:
+        value: String in format 'HH:MM', 'H:MM', or numeric value
+    
+    Returns:
+        Decimal hours (e.g., '90:00' -> 90.0, '0:15' -> 0.25, 90.0 -> 90.0)
+    """
+    if isinstance(value, (int, float)):
+        return float(value)
+    
+    if pd.isna(value) or value == '':
+        return 0.0
+    
+    if isinstance(value, str) and ":" in value:
+        try:
+            hours, minutes = value.split(":")
+            return float(hours) + float(minutes) / 60.0
+        except (ValueError, TypeError):
+            return 0.0
+    
+    # Try to parse as decimal number
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return 0.0
+
+
 def parse_duration(duration_str: str) -> float:
     """
     Parse duration string like '90:00' or '0:15' to decimal hours.
+    (Alias for to_hours for backward compatibility)
     
     Args:
         duration_str: String in format 'HH:MM' or 'H:MM'
@@ -18,24 +50,36 @@ def parse_duration(duration_str: str) -> float:
     Returns:
         Decimal hours (e.g., '90:00' -> 90.0, '0:15' -> 0.25)
     """
-    if pd.isna(duration_str) or duration_str == '':
+    return to_hours(duration_str)
+
+
+def normalize_attendance_pct(x) -> float:
+    """
+    Normalize attendance percentage values.
+    Handles both 0-1 decimals (e.g., 0.88) and 0-100 percentages (e.g., 88).
+    
+    Args:
+        x: Value that might be in 0-1 range or 0-100 range
+    
+    Returns:
+        Percentage in 0-100 range
+    """
+    if pd.isna(x) or x == '':
         return 0.0
     
-    duration_str = str(duration_str).strip()
-    
-    # Handle format like "90:00" or "0:15"
-    parts = duration_str.split(':')
-    if len(parts) == 2:
-        try:
-            hours = float(parts[0])
-            minutes = float(parts[1])
-            return hours + (minutes / 60.0)
-        except (ValueError, TypeError):
-            return 0.0
-    
-    # Try to parse as decimal number
     try:
-        return float(duration_str)
+        # Handle string values like "85%" or "0.85"
+        if isinstance(x, str):
+            val_str = str(x).strip().replace('%', '').strip()
+            val = float(val_str)
+        else:
+            val = float(x)
+        
+        # If value is <= 1, assume it's a decimal (0-1 range) and multiply by 100
+        # If value > 1, assume it's already a percentage (0-100 range)
+        if val <= 1.0:
+            return val * 100.0
+        return val
     except (ValueError, TypeError):
         return 0.0
 
@@ -296,28 +340,54 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
     elif 'Campus Login URL' not in attendance_normalized.columns:
         attendance_normalized['Campus Login URL'] = None
     
-    # Parse durations (find columns case-insensitively)
-    duration_patterns = {
-        'Scheduled Hours to Date': 'scheduled hours to date',
-        'Attended Hours to Date': 'attended hours to date',
-        'Missed Hours to Date': 'missed hours to date',
-        'Missed Minus Excused to date': 'missed minus excused to date'
-    }
+    # Convert time-based columns from "HH:MM" strings to numeric hours
+    # Find and convert "Scheduled Hours to Date"
+    scheduled_col = None
+    for col in attendance_normalized.columns:
+        if 'scheduled hours' in col.lower().strip() and 'date' in col.lower().strip():
+            scheduled_col = col
+            break
     
-    for col_name, pattern in duration_patterns.items():
-        for col in attendance_normalized.columns:
-            if pattern in col.lower().strip():
-                attendance_normalized[f'{col_name}_hours'] = attendance_normalized[col].apply(parse_duration)
-                break
+    if scheduled_col:
+        attendance_normalized['Scheduled Hours to Date'] = attendance_normalized[scheduled_col].apply(to_hours)
     
-    # Normalize attendance percentage (find column case-insensitively)
-    # Try multiple patterns to find the attendance percentage column
+    # Find and convert "Attended Hours to Date"
+    attended_hours_col = None
+    for col in attendance_normalized.columns:
+        if 'attended hours' in col.lower().strip() and 'date' in col.lower().strip():
+            attended_hours_col = col
+            break
+    
+    if attended_hours_col:
+        attendance_normalized['Attended Hours to Date'] = attendance_normalized[attended_hours_col].apply(to_hours)
+    
+    # Find and convert "Missed Hours to Date"
+    missed_hours_col = None
+    for col in attendance_normalized.columns:
+        if 'missed hours' in col.lower().strip() and 'date' in col.lower().strip():
+            missed_hours_col = col
+            break
+    
+    if missed_hours_col:
+        attendance_normalized['Missed Hours to Date'] = attendance_normalized[missed_hours_col].apply(to_hours)
+    
+    # Find and convert "Missed Minus Excused to date"
+    missed_excused_col = None
+    for col in attendance_normalized.columns:
+        if 'missed minus excused' in col.lower().strip() and 'date' in col.lower().strip():
+            missed_excused_col = col
+            break
+    
+    if missed_excused_col:
+        attendance_normalized['Missed Minus Excused to date'] = attendance_normalized[missed_excused_col].apply(to_hours)
+    
+    # Normalize "Attended % to Date." column
     att_pct_col = None
     possible_patterns = [
-        'attended % to date',
-        'attended% to date',
         'attended % to date.',
         'attended% to date.',
+        'attended % to date',
+        'attended% to date',
         'attendance %',
         'attendance%',
         'attended %',
@@ -334,80 +404,42 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
             break
     
     if att_pct_col:
-        # Get the actual values from the column
-        att_values = attendance_normalized[att_pct_col]
-        
-        # Convert to numeric, handling any text or errors
-        att_values_numeric = pd.to_numeric(att_values, errors='coerce')
-        
-        # Remove any NaN values for max calculation
-        valid_values = att_values_numeric.dropna()
-        
-        if len(valid_values) > 0:
-            max_att = valid_values.max()
-            min_att = valid_values.min()
-            
-            # Check the range of values
-            # If max is > 1, assume values are already in 0-100 range
-            # If max <= 1, assume values are in 0-1 range and need multiplication
-            if pd.notna(max_att) and max_att > 0:
-                if max_att > 1.0:
-                    # Values are already in 0-100 range
-                    attendance_normalized['attendance_pct'] = att_values_numeric.fillna(0.0)
-                elif max_att <= 1.0:
-                    # Values are in 0-1 range, multiply by 100
-                    attendance_normalized['attendance_pct'] = (att_values_numeric * 100.0).fillna(0.0)
-                else:
-                    # Edge case: all zeros
-                    attendance_normalized['attendance_pct'] = 0.0
-            else:
-                # All values are 0 or invalid - try direct conversion
-                attendance_normalized['attendance_pct'] = att_values_numeric.fillna(0.0) * 100.0
-        else:
-            # No valid values found - try to extract from raw values
-            # Sometimes the column might have text like "85%" or "0.85"
-            def extract_percentage(val):
-                if pd.isna(val):
-                    return 0.0
-                val_str = str(val).strip()
-                # Remove % sign if present
-                val_str = val_str.replace('%', '').strip()
-                try:
-                    num_val = float(val_str)
-                    # If > 1, assume it's already a percentage
-                    # If <= 1, assume it's a decimal
-                    return num_val if num_val > 1.0 else num_val * 100.0
-                except (ValueError, TypeError):
-                    return 0.0
-            
-            attendance_normalized['attendance_pct'] = attendance_normalized[att_pct_col].apply(extract_percentage)
+        # Apply normalize_attendance_pct function
+        attendance_normalized['Attended % to Date.'] = attendance_normalized[att_pct_col].apply(normalize_attendance_pct)
+        attendance_normalized['attendance_pct'] = attendance_normalized['Attended % to Date.']
     else:
-        # Column not found - try alternative: calculate from hours
-        # Try to calculate from Attended Hours / Scheduled Hours
-        scheduled_col = None
-        attended_col = None
-        
-        for col in attendance_normalized.columns:
-            col_lower = col.lower().strip()
-            if 'scheduled hours' in col_lower and 'date' in col_lower:
-                scheduled_col = col
-            elif 'attended hours' in col_lower and 'date' in col_lower:
-                attended_col = col
-        
-        if scheduled_col and attended_col:
+        # Column not found - try to calculate from hours
+        if 'Attended Hours to Date' in attendance_normalized.columns and 'Scheduled Hours to Date' in attendance_normalized.columns:
             # Calculate attendance percentage from hours
-            scheduled_hours = attendance_normalized[scheduled_col].apply(parse_duration)
-            attended_hours = attendance_normalized[attended_col].apply(parse_duration)
+            scheduled_hours = attendance_normalized['Scheduled Hours to Date']
+            attended_hours = attendance_normalized['Attended Hours to Date']
             
-            # Calculate percentage
+            # Calculate percentage, handling division by zero
             attendance_normalized['attendance_pct'] = (
-                (attended_hours / scheduled_hours * 100.0)
+                (attended_hours / scheduled_hours.replace(0, np.nan) * 100.0)
                 .replace([np.inf, -np.inf, np.nan], 0.0)
                 .clip(0.0, 100.0)
             )
         else:
             # Last resort: set to 0
             attendance_normalized['attendance_pct'] = 0.0
+    
+    # Normalize "% Missed" column if it exists
+    missed_pct_col = None
+    for col in attendance_normalized.columns:
+        col_lower = col.lower().strip()
+        if '% missed' in col_lower or '%missed' in col_lower:
+            missed_pct_col = col
+            break
+    
+    if missed_pct_col:
+        attendance_normalized['% Missed'] = attendance_normalized[missed_pct_col].apply(normalize_attendance_pct)
+        attendance_normalized['missed_pct'] = attendance_normalized['% Missed']
+    else:
+        attendance_normalized['missed_pct'] = 0.0
+    
+    # Replace NaN, Infinity, and empty values with 0
+    attendance_normalized = attendance_normalized.replace([np.inf, -np.inf, np.nan], 0)
     
     # Normalize % Missed (find column case-insensitively)
     missed_pct_col = None
