@@ -184,31 +184,10 @@ async def upload_file(
         # Normalize data
         grades_normalized, attendance_normalized = normalize_data(grades_df, attendance_df)
         
-        # Debug: Log attendance columns and values
-        if 'attendance_pct' in attendance_normalized.columns:
-            att_pct_values = attendance_normalized['attendance_pct']
-            non_zero_count = (att_pct_values > 0).sum()
-            print(f"DEBUG: attendance_pct column found. Non-zero values: {non_zero_count}/{len(att_pct_values)}")
-            print(f"DEBUG: attendance_pct sample values: {att_pct_values.head(5).tolist()}")
-        else:
-            print(f"DEBUG: attendance_pct column NOT found in attendance_normalized")
-            print(f"DEBUG: Available columns: {list(attendance_normalized.columns)}")
-        
         # Merge data
         merged_df = merge_data(grades_normalized, attendance_normalized)
         
-        # Debug: Check merged dataframe
-        print(f"\n=== DEBUG: main.py - After merge_data ===")
-        print(f"merged_df shape: {merged_df.shape}")
-        print(f"merged_df columns: {list(merged_df.columns)}")
-        
-        if 'attendance_pct' in merged_df.columns:
-            merged_att_values = merged_df['attendance_pct']
-            non_zero_merged = (merged_att_values > 0).sum()
-            print(f"DEBUG: After merge - attendance_pct non-zero: {non_zero_merged}/{len(merged_att_values)}")
-        else:
-            print(f"DEBUG: After merge - attendance_pct column NOT found")
-            print(f"DEBUG: Merged columns: {list(merged_df.columns)}")
+        print(f"Processed: {len(merged_df)} students")
         
         if len(merged_df) == 0:
             # Provide more detailed error message
@@ -247,12 +226,6 @@ async def upload_file(
             feature_cols.append('Missed Hours to Date_hours')
         
         # Compute risk scores using ML model or fallback heuristic
-        # This combines Grade % and Attendance % to predict at-risk students
-        print(f"\n=== DEBUG: Computing risk scores ===")
-        print(f"Feature columns: {feature_cols}")
-        print(f"Has target labels: {has_target}")
-        print(f"Risk thresholds: {RISK_THRESHOLDS}")
-        
         risk_scores, categories, model, scaler = train_or_fallback_score(
             merged_df, RISK_THRESHOLDS, has_target
         )
@@ -260,15 +233,9 @@ async def upload_file(
         # Clean risk_scores array to ensure no NaN or Infinity values
         if isinstance(risk_scores, np.ndarray):
             risk_scores = np.nan_to_num(risk_scores, nan=0.0, posinf=100.0, neginf=0.0)
-            risk_scores = np.clip(risk_scores, 0.0, 100.0)  # Ensure values are in valid range
+            risk_scores = np.clip(risk_scores, 0.0, 100.0)
         else:
-            # Convert to list and clean
             risk_scores = [clean_numeric_value(score) for score in risk_scores]
-        
-        print(f"Risk scores computed: {len(risk_scores)} scores")
-        print(f"Risk score range: min={min(risk_scores) if len(risk_scores) > 0 else 0:.2f}, max={max(risk_scores) if len(risk_scores) > 0 else 0:.2f}")
-        print(f"Risk categories: {dict(zip(*np.unique(categories, return_counts=True))) if len(categories) > 0 else {}}")
-        print(f"=== END DEBUG: Computing risk scores ===\n")
         
         # Build results
         results = []
@@ -362,11 +329,7 @@ async def upload_file(
             'At Risk (Simple Rule)': sum(1 for r in results if r.simple_rule_flagged)
         }
         
-        # Debug: Print sample results
-        print(f"\n=== DEBUG: Sample results (first 5) ===")
-        for i, r in enumerate(results[:5]):
-            print(f"Student {i+1}: {r.student_name} | Grade: {r.grade_pct:.1f}% | Attendance: {r.attendance_pct:.1f}% | Risk: {r.risk_score:.2f} ({r.risk_category}) | At Risk: {r.simple_rule_flagged}")
-        print(f"=== END DEBUG: Sample results ===\n")
+        print(f"Results: {summary['Total']} students ({summary['High']} High, {summary['Medium']} Medium, {summary['Low']} Low risk)")
         
         return UploadResponse(
             success=True,
