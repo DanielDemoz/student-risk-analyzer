@@ -215,7 +215,22 @@ async def upload_file(
             
             # Clean numeric values to ensure JSON compliance
             grade_pct = clean_numeric_value(row.get('grade_pct', 0))
-            attendance_pct = clean_numeric_value(row.get('attendance_pct', 0))
+            
+            # Get attendance_pct - try multiple possible column names
+            attendance_pct = 0.0
+            if 'attendance_pct' in row.index:
+                attendance_pct = clean_numeric_value(row.get('attendance_pct', 0))
+            elif 'attendance_pct_attendance' in row.index:
+                attendance_pct = clean_numeric_value(row.get('attendance_pct_attendance', 0))
+            elif 'attendance_pct_grades' in row.index:
+                attendance_pct = clean_numeric_value(row.get('attendance_pct_grades', 0))
+            else:
+                # Try to find any column with attendance percentage
+                for col in row.index:
+                    if 'attendance' in str(col).lower() and ('%' in str(col) or 'pct' in str(col).lower()):
+                        attendance_pct = clean_numeric_value(row.get(col, 0))
+                        break
+            
             risk_score = clean_numeric_value(risk_scores[idx] if idx < len(risk_scores) else 0)
             
             risk_category = categories[idx] if idx < len(categories) else 'Low'

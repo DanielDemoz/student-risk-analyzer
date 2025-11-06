@@ -170,14 +170,28 @@ def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str,
     # Load attendance dataframe
     attendance_df = pd.read_excel(excel_file, sheet_name=attendance_sheet_name, engine='openpyxl')
     
-    # Add Campus Login URL column to attendance_df
-    attendance_df['Campus Login URL'] = attendance_df['Student#'].astype(str).str.strip().map(
-        lambda x: attendance_hyperlinks.get(x, None)
-    )
-    
-    # Normalize column names (strip whitespace, handle variations)
+    # Normalize column names (strip whitespace, handle variations) BEFORE adding Campus Login URL
     grades_df.columns = grades_df.columns.str.strip()
     attendance_df.columns = attendance_df.columns.str.strip()
+    
+    # Add Campus Login URL column to attendance_df (after column normalization)
+    if 'Student#' in attendance_df.columns:
+        attendance_df['Campus Login URL'] = attendance_df['Student#'].astype(str).str.strip().map(
+            lambda x: attendance_hyperlinks.get(x, None)
+        )
+    else:
+        # Find Student# column
+        student_id_col = None
+        for col in attendance_df.columns:
+            if 'student#' in col.lower().strip():
+                student_id_col = col
+                break
+        if student_id_col:
+            attendance_df['Campus Login URL'] = attendance_df[student_id_col].astype(str).str.strip().map(
+                lambda x: attendance_hyperlinks.get(x, None)
+            )
+        else:
+            attendance_df['Campus Login URL'] = None
     
     # Validate required columns (case-insensitive)
     required_grades_cols = ['Student#', 'Student Name', 'Program Name', 'current overall Program Grade']
@@ -297,58 +311,84 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
                 break
     
     # Normalize attendance percentage (find column case-insensitively)
+    # Try multiple patterns to find the attendance percentage column
     att_pct_col = None
-    for col in attendance_normalized.columns:
-        col_lower = col.lower().strip()
-        # Match various forms: "Attended % to Date.", "Attended % to Date", "Attended% to Date", etc.
-        if 'attended' in col_lower and '%' in col_lower and ('date' in col_lower or 'to date' in col_lower):
-            att_pct_col = col
+    possible_patterns = [
+        'attended % to date',
+        'attended% to date',
+        'attended % to date.',
+        'attended% to date.',
+        'attendance %',
+        'attendance%',
+        'attended %',
+        'attended%'
+    ]
+    
+    for pattern in possible_patterns:
+        for col in attendance_normalized.columns:
+            col_lower = col.lower().strip()
+            if pattern in col_lower:
+                att_pct_col = col
+                break
+        if att_pct_col:
             break
     
     if att_pct_col:
         # Get the actual values from the column
         att_values = attendance_normalized[att_pct_col]
+        
+        # Convert to numeric, handling any text or errors
+        att_values_numeric = pd.to_numeric(att_values, errors='coerce')
+        
         # Remove any NaN values for max calculation
-        valid_values = att_values.dropna()
+        valid_values = att_values_numeric.dropna()
         
         if len(valid_values) > 0:
             max_att = valid_values.max()
-            # Check if values are already in 0-100 range or 0-1 range
+            min_att = valid_values.min()
+            
+            # Debug: Check the range of values
+            # If max is > 1, assume values are already in 0-100 range
+            # If max <= 1, assume values are in 0-1 range and need multiplication
             if pd.notna(max_att) and max_att > 0:
-                # Apply normalization
-                attendance_normalized['attendance_pct'] = attendance_normalized[att_pct_col].apply(
-                    lambda x: normalize_percentage(x, max_att) if pd.notna(x) else 0.0
-                )
-            else:
-                # If max is 0 or NaN, try to use values as-is (might already be percentages)
-                attendance_normalized['attendance_pct'] = attendance_normalized[att_pct_col].apply(
-                    lambda x: float(x) * 100.0 if pd.notna(x) and float(x) <= 1.0 else (float(x) if pd.notna(x) else 0.0)
-                )
-        else:
-            # No valid values, set to 0
-            attendance_normalized['attendance_pct'] = 0.0
-    else:
-        # Column not found, try to find it with different patterns
-        for col in attendance_normalized.columns:
-            if 'attendance' in col.lower() and '%' in col.lower():
-                att_pct_col = col
-                break
-        
-        if att_pct_col:
-            valid_values = attendance_normalized[att_pct_col].dropna()
-            if len(valid_values) > 0:
-                max_att = valid_values.max()
-                if pd.notna(max_att) and max_att > 0:
-                    attendance_normalized['attendance_pct'] = attendance_normalized[att_pct_col].apply(
-                        lambda x: normalize_percentage(x, max_att) if pd.notna(x) else 0.0
-                    )
+                if max_att > 1.0:
+                    # Values are already in 0-100 range
+                    attendance_normalized['attendance_pct'] = att_values_numeric.fillna(0.0)
                 else:
-                    attendance_normalized['attendance_pct'] = attendance_normalized[att_pct_col].apply(
-                        lambda x: float(x) * 100.0 if pd.notna(x) and float(x) <= 1.0 else (float(x) if pd.notna(x) else 0.0)
-                    )
+                    # Values are in 0-1 range, multiply by 100
+                    attendance_normalized['attendance_pct'] = (att_values_numeric * 100.0).fillna(0.0)
             else:
+                # All values are 0 or invalid
                 attendance_normalized['attendance_pct'] = 0.0
         else:
+            # No valid values found
+            attendance_normalized['attendance_pct'] = 0.0
+    else:
+        # Column not found - try alternative: calculate from hours
+        # Try to calculate from Attended Hours / Scheduled Hours
+        scheduled_col = None
+        attended_col = None
+        
+        for col in attendance_normalized.columns:
+            col_lower = col.lower().strip()
+            if 'scheduled hours' in col_lower and 'date' in col_lower:
+                scheduled_col = col
+            elif 'attended hours' in col_lower and 'date' in col_lower:
+                attended_col = col
+        
+        if scheduled_col and attended_col:
+            # Calculate attendance percentage from hours
+            scheduled_hours = attendance_normalized[scheduled_col].apply(parse_duration)
+            attended_hours = attendance_normalized[attended_col].apply(parse_duration)
+            
+            # Calculate percentage
+            attendance_normalized['attendance_pct'] = (
+                (attended_hours / scheduled_hours * 100.0)
+                .replace([np.inf, -np.inf, np.nan], 0.0)
+                .clip(0.0, 100.0)
+            )
+        else:
+            # Last resort: set to 0
             attendance_normalized['attendance_pct'] = 0.0
     
     # Normalize % Missed (find column case-insensitively)
@@ -414,6 +454,25 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
             merged = merged.drop(columns=['Campus Login URL_attendance'])
         else:
             merged['Campus Login URL'] = None
+    
+    # Preserve attendance_pct from attendance sheet (critical!)
+    if 'attendance_pct' not in merged.columns:
+        # Check if it exists with suffix
+        if 'attendance_pct_attendance' in merged.columns:
+            merged['attendance_pct'] = merged['attendance_pct_attendance']
+            merged = merged.drop(columns=['attendance_pct_attendance'])
+        elif 'attendance_pct_grades' in merged.columns:
+            merged['attendance_pct'] = merged['attendance_pct_grades']
+            merged = merged.drop(columns=['attendance_pct_grades'])
+        else:
+            # Try to find any attendance percentage column
+            for col in merged.columns:
+                if 'attendance' in str(col).lower() and ('%' in str(col) or 'pct' in str(col).lower()):
+                    merged['attendance_pct'] = merged[col]
+                    break
+            else:
+                # If still not found, set to 0
+                merged['attendance_pct'] = 0.0
     
     # Deduplicate by Student# (keep last row)
     merged = merged.drop_duplicates(subset=['Student#'], keep='last')

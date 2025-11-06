@@ -212,18 +212,19 @@ body {
 }
 
 .brukd-table-header {
-    background: linear-gradient(135deg, var(--brukd-primary) 0%, var(--brukd-button-hover) 100%);
-    color: white;
+    background: linear-gradient(135deg, var(--brukd-primary) 0%, var(--brukd-button-hover) 100%) !important;
+    color: white !important;
 }
 
 .brukd-table-header th {
-    border: none;
-    padding: 1rem 1.5rem;
-    font-weight: 600;
+    border: none !important;
+    padding: 1rem 1.5rem !important;
+    font-weight: 600 !important;
     text-transform: uppercase;
     font-size: 0.85rem;
     letter-spacing: 0.5px;
-    color: white;
+    color: white !important;
+    background: transparent !important;
 }
 
 .brukd-table tbody tr {
