@@ -514,6 +514,8 @@ async def upload_file(
                 print(f"  Student# value: {row.get('Student#', 'NOT FOUND')}")
                 print(f"  Student Name value: {row.get('Student Name', 'NOT FOUND')}")
                 print(f"  Final - Student ID: {student_id}, Student Name: {student_name}")
+                print(f"  Final - Student ID type: {type(student_id)}, Student Name type: {type(student_name)}")
+                print(f"  Final - Student ID value: '{student_id}', Student Name value: '{student_name}'")
             
             # Handle Program Name - clean NaN values
             program_name_val = row.get('Program Name', 'Unknown')
