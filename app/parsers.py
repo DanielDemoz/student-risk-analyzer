@@ -98,47 +98,93 @@ def normalize_and_rename_columns(df: pd.DataFrame, sheet_type: str) -> pd.DataFr
         print(f"DEBUG: After removing duplicates: {list(df.columns)}")
     
     # Ensure required columns exist - if not found, try to create them or use closest match
-    if sheet_type == "grades":
-        # Handle Student Name
-        if "Student Name" not in df.columns:
-            # Try to find any column that might be student name
-            for col in df.columns:
-                if normalize_col_name(col) in ["student name", "studentname", "name"]:
-                    df = df.rename(columns={col: "Student Name"})
-                    print(f"DEBUG: Found and renamed '{col}' to 'Student Name'")
-                    break
-            else:
-                # If still not found, create a placeholder column
-                print("WARNING: 'Student Name' column not found, creating placeholder")
-                df["Student Name"] = "Unknown"
+    try:
+        if sheet_type == "grades":
+            # Handle Student Name - be more flexible in finding it
+            if "Student Name" not in df.columns:
+                print(f"DEBUG: 'Student Name' not found in grades columns: {list(df.columns)}")
+                # Try to find any column that might be student name (more flexible matching)
+                found_student_name = False
+                for col in df.columns:
+                    col_normalized = normalize_col_name(col)
+                    # Check if it matches any variation
+                    if col_normalized in ["student name", "studentname", "name", "student"]:
+                        if col != "Student Name":  # Avoid renaming if already correct
+                            df = df.rename(columns={col: "Student Name"})
+                            print(f"DEBUG: Found and renamed '{col}' to 'Student Name'")
+                            found_student_name = True
+                            break
+                
+                if not found_student_name:
+                    # If still not found, create a placeholder column
+                    print("WARNING: 'Student Name' column not found in grades, creating placeholder")
+                    if len(df) > 0:
+                        df["Student Name"] = "Unknown"
+                    else:
+                        df["Student Name"] = pd.Series([], dtype=str)
+            
+            # Verify Student Name exists now
+            if "Student Name" not in df.columns:
+                raise ValueError(f"Failed to create 'Student Name' column in grades sheet. DataFrame shape: {df.shape}, columns: {list(df.columns)}")
+            
+            # Handle Student# - make it optional, create if missing
+            if "Student#" not in df.columns:
+                print("WARNING: 'Student#' column not found in grades sheet, will create sequential IDs")
+                # Create sequential Student# based on index
+                if len(df) > 0:
+                    df["Student#"] = range(1, len(df) + 1)
+                    print(f"DEBUG: Created Student# column with {len(df)} sequential IDs")
+                else:
+                    df["Student#"] = pd.Series([], dtype=int)
         
-        # Handle Student# - make it optional, create if missing
-        if "Student#" not in df.columns:
-            print("WARNING: 'Student#' column not found in grades sheet, will create sequential IDs")
-            # Create sequential Student# based on index
-            df["Student#"] = range(1, len(df) + 1)
-            print(f"DEBUG: Created Student# column with {len(df)} sequential IDs")
-    
-    elif sheet_type == "attendance":
-        # Handle Student Name
-        if "Student Name" not in df.columns:
-            # Try to find any column that might be student name
-            for col in df.columns:
-                if normalize_col_name(col) in ["student name", "studentname", "name"]:
-                    df = df.rename(columns={col: "Student Name"})
-                    print(f"DEBUG: Found and renamed '{col}' to 'Student Name'")
-                    break
-            else:
-                # If still not found, create a placeholder column
-                print("WARNING: 'Student Name' column not found, creating placeholder")
-                df["Student Name"] = "Unknown"
+        elif sheet_type == "attendance":
+            # Handle Student Name - be more flexible in finding it
+            if "Student Name" not in df.columns:
+                print(f"DEBUG: 'Student Name' not found in attendance columns: {list(df.columns)}")
+                # Try to find any column that might be student name (more flexible matching)
+                found_student_name = False
+                for col in df.columns:
+                    col_normalized = normalize_col_name(col)
+                    # Check if it matches any variation
+                    if col_normalized in ["student name", "studentname", "name", "student"]:
+                        if col != "Student Name":  # Avoid renaming if already correct
+                            df = df.rename(columns={col: "Student Name"})
+                            print(f"DEBUG: Found and renamed '{col}' to 'Student Name'")
+                            found_student_name = True
+                            break
+                
+                if not found_student_name:
+                    # If still not found, create a placeholder column
+                    print("WARNING: 'Student Name' column not found in attendance, creating placeholder")
+                    if len(df) > 0:
+                        df["Student Name"] = "Unknown"
+                    else:
+                        df["Student Name"] = pd.Series([], dtype=str)
+            
+            # Verify Student Name exists now
+            if "Student Name" not in df.columns:
+                raise ValueError(f"Failed to create 'Student Name' column in attendance sheet. DataFrame shape: {df.shape}, columns: {list(df.columns)}")
+            
+            # Handle Student# - make it optional, create if missing
+            if "Student#" not in df.columns:
+                print("WARNING: 'Student#' column not found in attendance sheet, will create sequential IDs")
+                # Create sequential Student# based on index
+                if len(df) > 0:
+                    df["Student#"] = range(1, len(df) + 1)
+                    print(f"DEBUG: Created Student# column with {len(df)} sequential IDs")
+                else:
+                    df["Student#"] = pd.Series([], dtype=int)
         
-        # Handle Student# - make it optional, create if missing
-        if "Student#" not in df.columns:
-            print("WARNING: 'Student#' column not found in attendance sheet, will create sequential IDs")
-            # Create sequential Student# based on index
-            df["Student#"] = range(1, len(df) + 1)
-            print(f"DEBUG: Created Student# column with {len(df)} sequential IDs")
+        # Final verification
+        print(f"DEBUG: Final columns after normalization ({sheet_type}): {list(df.columns)}")
+        if "Student Name" not in df.columns:
+            raise ValueError(f"'Student Name' column missing after normalization in {sheet_type} sheet. Columns: {list(df.columns)}")
+        
+    except Exception as e:
+        print(f"ERROR in normalize_and_rename_columns for {sheet_type}: {e}")
+        print(f"DataFrame shape: {df.shape}")
+        print(f"DataFrame columns: {list(df.columns)}")
+        raise
     
     return df
 
@@ -197,18 +243,29 @@ def clean_attendance_df(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
     
+    # Ensure Student Name exists before trying to filter
+    if "Student Name" not in df.columns:
+        print("WARNING: 'Student Name' column missing in clean_attendance_df, creating placeholder")
+        if len(df) > 0:
+            df["Student Name"] = "Unknown"
+        else:
+            df["Student Name"] = pd.Series([], dtype=str)
+    
     # Remove total/summary rows
-    if "Student Name" in df.columns:
-        # Remove rows where Student Name contains "Total", "Summary", or is empty
-        student_name_series = safe_get_series(df, "Student Name")
-        mask = (
-            ~student_name_series.astype(str).str.contains("Total", case=False, na=False) &
-            ~student_name_series.astype(str).str.contains("Summary", case=False, na=False) &
-            ~student_name_series.astype(str).str.strip().eq("") &
-            student_name_series.notna()
-        )
-        df = df[mask].copy()
-        print(f"DEBUG: Removed summary rows, remaining rows: {len(df)}")
+    try:
+        if "Student Name" in df.columns and len(df) > 0:
+            # Remove rows where Student Name contains "Total", "Summary", or is empty
+            student_name_series = safe_get_series(df, "Student Name")
+            mask = (
+                ~student_name_series.astype(str).str.contains("Total", case=False, na=False) &
+                ~student_name_series.astype(str).str.contains("Summary", case=False, na=False) &
+                ~student_name_series.astype(str).str.strip().eq("") &
+                student_name_series.notna()
+            )
+            df = df[mask].copy()
+            print(f"DEBUG: Removed summary rows, remaining rows: {len(df)}")
+    except Exception as e:
+        print(f"WARNING: Error filtering summary rows: {e}. Continuing with all rows.")
     
     # Convert HH:MM columns to decimal hours
     time_columns = [
