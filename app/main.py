@@ -134,8 +134,7 @@ async def health_check():
 
 @app.post("/upload", response_model=UploadResponse)
 async def upload_file(
-    file: UploadFile = File(...),
-    campus_login_base_url: Optional[str] = Form(None)
+    file: UploadFile = File(...)
 ):
     """
     Upload and process Excel file.
@@ -157,11 +156,6 @@ async def upload_file(
             status_code=400,
             detail="Invalid file type. Please upload an Excel file (.xlsx or .xls)"
         )
-    
-    # Update base URL if provided
-    global CAMPUS_LOGIN_BASE_URL
-    if campus_login_base_url:
-        CAMPUS_LOGIN_BASE_URL = campus_login_base_url
     
     try:
         # Load and parse Excel

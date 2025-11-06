@@ -123,7 +123,6 @@ async function handleUpload(e) {
     e.preventDefault();
 
     const fileInput = document.getElementById('fileInput');
-    const campusLoginUrl = document.getElementById('campusLoginUrl').value;
     const processBtn = document.getElementById('processBtn');
     const spinner = document.getElementById('spinner');
     const errorAlert = document.getElementById('errorAlert');
@@ -146,9 +145,6 @@ async function handleUpload(e) {
     // Prepare form data
     const formData = new FormData();
     formData.append('file', fileInput.files[0]);
-    if (campusLoginUrl) {
-        formData.append('campus_login_base_url', campusLoginUrl);
-    }
 
     try {
         const apiEndpoint = getApiEndpoint();
@@ -257,13 +253,20 @@ function createTableRow(result) {
         explanationAttr = `data-bs-toggle="tooltip" data-bs-placement="top" title="${result.explanation}"`;
     }
 
+    // Risk Assessment combines score and category
+    const riskAssessment = `${result.risk_score.toFixed(1)} (${result.risk_category})`;
+    
     row.innerHTML = `
         <td>${studentNameLink}</td>
         <td>${result.program_name}</td>
         <td>${result.grade_pct.toFixed(1)}%</td>
         <td>${result.attendance_pct.toFixed(1)}%</td>
-        <td ${explanationAttr}>${result.risk_score.toFixed(1)}</td>
-        <td>${badge}</td>
+        <td ${explanationAttr}>
+            <div class="d-flex align-items-center gap-2">
+                <span>${result.risk_score.toFixed(1)}</span>
+                ${badge}
+            </div>
+        </td>
         <td>
             <button class="btn btn-sm brukd-btn-primary btn-action" onclick="openCampusLogin('${result.campus_login_url.replace(/'/g, "\\'")}')">
                 Open Campus Login

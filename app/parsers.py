@@ -299,20 +299,57 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
     # Normalize attendance percentage (find column case-insensitively)
     att_pct_col = None
     for col in attendance_normalized.columns:
-        if 'attended % to date' in col.lower().strip() or 'attended% to date' in col.lower().strip():
+        col_lower = col.lower().strip()
+        # Match various forms: "Attended % to Date.", "Attended % to Date", "Attended% to Date", etc.
+        if 'attended' in col_lower and '%' in col_lower and ('date' in col_lower or 'to date' in col_lower):
             att_pct_col = col
             break
     
     if att_pct_col:
-        max_att = attendance_normalized[att_pct_col].max()
-        if pd.notna(max_att):
-            attendance_normalized['attendance_pct'] = attendance_normalized[att_pct_col].apply(
-                lambda x: normalize_percentage(x, max_att)
-            )
+        # Get the actual values from the column
+        att_values = attendance_normalized[att_pct_col]
+        # Remove any NaN values for max calculation
+        valid_values = att_values.dropna()
+        
+        if len(valid_values) > 0:
+            max_att = valid_values.max()
+            # Check if values are already in 0-100 range or 0-1 range
+            if pd.notna(max_att) and max_att > 0:
+                # Apply normalization
+                attendance_normalized['attendance_pct'] = attendance_normalized[att_pct_col].apply(
+                    lambda x: normalize_percentage(x, max_att) if pd.notna(x) else 0.0
+                )
+            else:
+                # If max is 0 or NaN, try to use values as-is (might already be percentages)
+                attendance_normalized['attendance_pct'] = attendance_normalized[att_pct_col].apply(
+                    lambda x: float(x) * 100.0 if pd.notna(x) and float(x) <= 1.0 else (float(x) if pd.notna(x) else 0.0)
+                )
         else:
+            # No valid values, set to 0
             attendance_normalized['attendance_pct'] = 0.0
     else:
-        attendance_normalized['attendance_pct'] = 0.0
+        # Column not found, try to find it with different patterns
+        for col in attendance_normalized.columns:
+            if 'attendance' in col.lower() and '%' in col.lower():
+                att_pct_col = col
+                break
+        
+        if att_pct_col:
+            valid_values = attendance_normalized[att_pct_col].dropna()
+            if len(valid_values) > 0:
+                max_att = valid_values.max()
+                if pd.notna(max_att) and max_att > 0:
+                    attendance_normalized['attendance_pct'] = attendance_normalized[att_pct_col].apply(
+                        lambda x: normalize_percentage(x, max_att) if pd.notna(x) else 0.0
+                    )
+                else:
+                    attendance_normalized['attendance_pct'] = attendance_normalized[att_pct_col].apply(
+                        lambda x: float(x) * 100.0 if pd.notna(x) and float(x) <= 1.0 else (float(x) if pd.notna(x) else 0.0)
+                    )
+            else:
+                attendance_normalized['attendance_pct'] = 0.0
+        else:
+            attendance_normalized['attendance_pct'] = 0.0
     
     # Normalize % Missed (find column case-insensitively)
     missed_pct_col = None

@@ -79,18 +79,6 @@
                                 </div>
                             </div>
                             
-                            <div class="mb-4">
-                                <label for="campusLoginUrl" class="form-label fw-semibold">
-                                    <strong>Step 2:</strong> Campus Login Base URL <span class="text-muted">(Optional)</span>
-                                </label>
-                                <input type="text" class="form-control" id="campusLoginUrl" 
-                                       placeholder="https://compuslogin.example.com?student_id={student_id}">
-                                <div class="form-text mt-2">
-                                    If your Excel file already contains hyperlinks in the attendance sheet, this is optional. 
-                                    Otherwise, enter your campus login URL template here.
-                                </div>
-                            </div>
-                            
                             <button type="submit" class="btn brukd-btn-primary btn-lg w-100" id="processBtn">
                                 <span class="spinner-border spinner-border-sm d-none me-2" id="spinner" role="status"></span>
                                 <span id="btnText">Analyze Student Risk</span>
@@ -199,12 +187,11 @@
                             <table class="table table-hover mb-0 brukd-table" id="resultsTable">
                                 <thead class="brukd-table-header">
                                     <tr>
-                                        <th>Student Name</th>
+                                        <th>Name</th>
                                         <th>Program</th>
                                         <th>Grade %</th>
                                         <th>Attendance %</th>
-                                        <th>Risk Score</th>
-                                        <th>Risk Category</th>
+                                        <th>Risk Assessment</th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>
