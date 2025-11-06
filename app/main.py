@@ -184,8 +184,27 @@ async def upload_file(
         # Normalize data
         grades_normalized, attendance_normalized = normalize_data(grades_df, attendance_df)
         
+        # Debug: Log attendance columns and values
+        if 'attendance_pct' in attendance_normalized.columns:
+            att_pct_values = attendance_normalized['attendance_pct']
+            non_zero_count = (att_pct_values > 0).sum()
+            print(f"DEBUG: attendance_pct column found. Non-zero values: {non_zero_count}/{len(att_pct_values)}")
+            print(f"DEBUG: attendance_pct sample values: {att_pct_values.head(5).tolist()}")
+        else:
+            print(f"DEBUG: attendance_pct column NOT found in attendance_normalized")
+            print(f"DEBUG: Available columns: {list(attendance_normalized.columns)}")
+        
         # Merge data
         merged_df = merge_data(grades_normalized, attendance_normalized)
+        
+        # Debug: Check merged dataframe
+        if 'attendance_pct' in merged_df.columns:
+            merged_att_values = merged_df['attendance_pct']
+            non_zero_merged = (merged_att_values > 0).sum()
+            print(f"DEBUG: After merge - attendance_pct non-zero: {non_zero_merged}/{len(merged_att_values)}")
+        else:
+            print(f"DEBUG: After merge - attendance_pct column NOT found")
+            print(f"DEBUG: Merged columns: {list(merged_df.columns)}")
         
         if len(merged_df) == 0:
             raise HTTPException(
