@@ -415,10 +415,11 @@ async def upload_file(
             else:
                 student_name = str(student_name_val).strip()
             
-            # Final safety check: if Student Name looks like a number (ID), it's misaligned
-            # Only swap if BOTH conditions are true:
+            # Final safety check: if Student Name looks like a number (ID), it might be misaligned
+            # Only swap if we're CERTAIN they're swapped (both conditions must be true):
             # 1. Student Name is all digits and >= 1000 (looks like an ID)
             # 2. Student ID is < 1000 (looks like an index, not a real ID)
+            # IMPORTANT: If we can't find a better name, KEEP the original (don't set to Unknown)
             try:
                 # Check if student_name is all digits and looks like an ID
                 if student_name.isdigit():
@@ -447,40 +448,32 @@ async def upload_file(
                                                 found_real_name = True
                                                 break
                                 
-                                # If we couldn't find a real name, keep the temp_id but check if it's valid
+                                # If we couldn't find a real name, check if temp_id is a valid name
                                 if not found_real_name:
                                     # temp_id might actually be a name if it's not numeric
-                                    if not temp_id.isdigit():
+                                    if not temp_id.isdigit() and temp_id.lower() not in ['nan', 'none', '']:
                                         student_name = temp_id
-                                        print(f"  Using temp_id as name: {student_name}")
+                                        print(f"  Using swapped Student ID as name: {student_name}")
                                     else:
-                                        print(f"  Could not find actual name, setting to 'Unknown'")
-                                        student_name = 'Unknown'
+                                        # Last resort: keep the numeric ID as the name (better than Unknown)
+                                        print(f"  WARNING: Could not find actual name. Keeping numeric ID '{student_name}' as name (better than Unknown)")
+                                        # Don't set to Unknown - keep the ID as the name
                         except (ValueError, TypeError):
                             # Student ID is not numeric, so don't swap
                             pass
-                    # If student_name is numeric but < 1000, it might still be wrong, but don't auto-swap
-                    # Only set to Unknown if it's clearly an ID (>= 1000) and we can't find a better name
-                    elif student_name_as_id >= 1000:
-                        # Student Name is numeric >= 1000, but Student ID might also be valid
-                        # Try to find actual name in other columns without swapping
-                        for col in row.index:
-                            if 'name' in col.lower() and 'student' in col.lower() and col != student_name_source:
-                                alt_val = row.get(col)
-                                if pd.notna(alt_val):
-                                    alt_str = str(alt_val).strip()
-                                    if not alt_str.isdigit() and alt_str.lower() not in ['nan', 'none', '']:
-                                        print(f"  Found alternative Student Name in '{col}': {alt_str} (using this instead)")
-                                        student_name = alt_str
-                                        break
-                        # Only set to Unknown if we still have a numeric ID in the name field
-                        if student_name.isdigit() and int(float(student_name)) >= 1000:
-                            print(f"  WARNING: Student Name is still numeric ID '{student_name}', but keeping it (might be correct if Excel has no names)")
-                            # Don't set to Unknown - keep the ID as the name for now
+                    # If student_name is numeric but < 1000, it might be wrong, but don't auto-swap
+                    # Just log a warning but keep the name
+                    elif student_name_as_id < 1000:
+                        if row_idx < 5:
+                            print(f"  Note: Student Name '{student_name}' is numeric but < 1000. Keeping as-is.")
+                else:
+                    # Student Name is not all digits - it's likely a real name, keep it!
+                    if row_idx < 5:
+                        print(f"  Student Name '{student_name}' looks valid (not all digits), keeping it")
             except (AttributeError, ValueError, TypeError) as e:
                 # If validation fails, keep the original student_name
                 if row_idx < 5:
-                    print(f"  Note: Could not validate Student Name format: {e}")
+                    print(f"  Note: Could not validate Student Name format: {e}, keeping original: {student_name}")
                 pass
             
             if row_idx < 5:  # Debug first 5 rows
