@@ -752,6 +752,10 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     attendance_df = attendance_df[attendance_df['Student#'] != 0].copy()
     
     print(f"Merging: grades_df={len(grades_df)} rows, attendance_df={len(attendance_df)} rows")
+    print(f"DEBUG: grades_df Student# sample: {grades_df['Student#'].head(5).tolist()}")
+    print(f"DEBUG: attendance_df Student# sample: {attendance_df['Student#'].head(5).tolist()}")
+    print(f"DEBUG: grades_df columns: {list(grades_df.columns)}")
+    print(f"DEBUG: attendance_df columns: {list(attendance_df.columns)}")
     
     # Merge using outer join to include ALL students
     merged = pd.merge(
@@ -763,6 +767,8 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     )
     
     print(f"After merge: {len(merged)} rows, {merged['Student#'].nunique()} unique students")
+    print(f"DEBUG: merged columns: {list(merged.columns)}")
+    print(f"DEBUG: merged Student# sample: {merged['Student#'].head(10).tolist()}")
     
     # Handle Student Name - prefer grades, fallback to attendance
     if 'Student Name_grades' in merged.columns and 'Student Name_attendance' in merged.columns:
@@ -798,42 +804,60 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
         else:
             merged['Campus Login URL'] = None
     
+    # Track which data came from which sheet BEFORE merging columns
+    # This helps us determine if data is actually missing vs. just 0.0
+    has_grade_from_grades = 'grade_pct_grades' in merged.columns
+    has_grade_from_attendance = 'grade_pct_attendance' in merged.columns
+    has_attendance_from_grades = 'attendance_pct_grades' in merged.columns
+    has_attendance_from_attendance = 'attendance_pct_attendance' in merged.columns
+    
     # Preserve attendance_pct from attendance sheet
     if 'attendance_pct' not in merged.columns:
         if 'attendance_pct_attendance' in merged.columns:
             merged['attendance_pct'] = merged['attendance_pct_attendance'].fillna(0.0)
+            merged['_has_attendance'] = merged['attendance_pct_attendance'].notna()
             merged = merged.drop(columns=['attendance_pct_attendance'])
         elif 'attendance_pct_grades' in merged.columns:
             merged['attendance_pct'] = merged['attendance_pct_grades'].fillna(0.0)
+            merged['_has_attendance'] = merged['attendance_pct_grades'].notna()
             merged = merged.drop(columns=['attendance_pct_grades'])
         else:
             # Try to find any attendance percentage column
+            found_col = None
             for col in merged.columns:
                 if 'attended' in str(col).lower() and ('%' in str(col) or 'pct' in str(col).lower()):
+                    found_col = col
                     merged['attendance_pct'] = merged[col].fillna(0.0)
+                    merged['_has_attendance'] = merged[col].notna()
                     break
-            else:
+            if not found_col:
                 merged['attendance_pct'] = 0.0
+                merged['_has_attendance'] = False
     else:
         merged['attendance_pct'] = merged['attendance_pct'].fillna(0.0)
+        merged['_has_attendance'] = merged['attendance_pct'].notna() & (merged['attendance_pct'] != 0.0)
     
     # Preserve grade_pct from grades sheet
     if 'grade_pct' not in merged.columns:
         if 'grade_pct_grades' in merged.columns:
             merged['grade_pct'] = merged['grade_pct_grades'].fillna(0.0)
+            merged['_has_grade'] = merged['grade_pct_grades'].notna()
             merged = merged.drop(columns=['grade_pct_grades'])
         elif 'grade_pct_attendance' in merged.columns:
             merged['grade_pct'] = merged['grade_pct_attendance'].fillna(0.0)
+            merged['_has_grade'] = merged['grade_pct_attendance'].notna()
             merged = merged.drop(columns=['grade_pct_attendance'])
         else:
             merged['grade_pct'] = 0.0
+            merged['_has_grade'] = False
     else:
         merged['grade_pct'] = merged['grade_pct'].fillna(0.0)
+        merged['_has_grade'] = merged['grade_pct'].notna() & (merged['grade_pct'] != 0.0)
     
-    # Determine data status - label missing data
-    # Check if grade_pct is missing (0.0 or NaN) and attendance_pct is missing (0.0 or NaN)
-    grade_missing = (merged['grade_pct'] == 0.0) | merged['grade_pct'].isna()
-    attendance_missing = (merged['attendance_pct'] == 0.0) | merged['attendance_pct'].isna()
+    # Determine data status - label missing data based on whether data actually exists
+    # Use the _has_grade and _has_attendance flags to determine if data is missing
+    grade_missing = ~merged['_has_grade']
+    attendance_missing = ~merged['_has_attendance']
     
     # Create data_status column
     merged['data_status'] = np.where(
@@ -852,11 +876,19 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     
     print(f"Data status counts: {merged['data_status'].value_counts().to_dict()}")
     
+    # Remove helper columns
+    if '_has_grade' in merged.columns:
+        merged = merged.drop(columns=['_has_grade'])
+    if '_has_attendance' in merged.columns:
+        merged = merged.drop(columns=['_has_attendance'])
+    
     # Remove duplicates by Student# (keep first occurrence)
     # This handles cases where a student appears multiple times
     merged = merged.drop_duplicates(subset=['Student#'], keep='first')
     
     print(f"After deduplication: {len(merged)} rows")
+    print(f"DEBUG: Final merged shape: {merged.shape}")
+    print(f"DEBUG: Final merged Student# count: {merged['Student#'].nunique()}")
     
     return merged
 

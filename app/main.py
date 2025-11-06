@@ -240,9 +240,15 @@ async def upload_file(
         # Reset index to ensure sequential indexing for risk_scores and categories
         merged_df = merged_df.reset_index(drop=True)
         
+        print(f"DEBUG: Before building results - merged_df shape: {merged_df.shape}")
+        print(f"DEBUG: risk_scores length: {len(risk_scores)}")
+        print(f"DEBUG: categories length: {len(categories)}")
+        
         # Build results - use enumerate to get sequential index
         results = []
         for row_idx, (_, row) in enumerate(merged_df.iterrows()):
+            if row_idx < 5:  # Debug first 5 rows
+                print(f"DEBUG: Processing row {row_idx}, Student#: {row.get('Student#')}, Student Name: {row.get('Student Name', 'Unknown')}")
             student_id = str(row['Student#']).strip()
             
             # Handle Student Name - clean NaN values
@@ -341,6 +347,10 @@ async def upload_file(
                 explanation=explanation
             )
             results.append(result)
+            if row_idx < 5:  # Debug first 5 results
+                print(f"DEBUG: Added result {row_idx}: {student_name}, data_status: {data_status}, risk_category: {risk_category}")
+        
+        print(f"DEBUG: Total results built: {len(results)}")
         
         # Sort by data status first (Complete > Missing Attendance > Missing Grade > Missing Both)
         # Then by risk score (descending) - highest risk first
