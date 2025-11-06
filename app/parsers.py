@@ -85,6 +85,26 @@ def normalize_attendance_pct(x) -> float:
         return 0.0
 
 
+def normalize_pct(x) -> float:
+    """
+    Normalize percentage values (simpler version for direct column application).
+    Handles both 0-1 decimals (e.g., 0.88) and 0-100 percentages (e.g., 88).
+    
+    Args:
+        x: Value that might be in 0-1 range or 0-100 range
+    
+    Returns:
+        Percentage in 0-100 range
+    """
+    try:
+        val = float(x)
+        if val <= 1:
+            return val * 100
+        return val
+    except (ValueError, TypeError):
+        return 0.0
+
+
 def normalize_percentage(value: float, max_value: float = 1.0) -> float:
     """
     Normalize percentage to 0-100 range.
@@ -317,96 +337,48 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
     
     # Normalize Attendance sheet
     attendance_normalized = attendance_df.copy()
-    
+
     # Preserve Campus Login URL column if it exists
     campus_login_url_col = None
     for col in attendance_normalized.columns:
         if 'campus login url' in col.lower().strip():
             campus_login_url_col = col
             break
-    
+
     # Find Student# column (case-insensitive)
     student_id_col = None
     for col in attendance_normalized.columns:
         if 'student#' in col.lower().strip():
             student_id_col = col
             break
-    
+
     if student_id_col:
         attendance_normalized['Student#'] = attendance_normalized[student_id_col].astype(str).str.strip()
-    
+
     # Preserve Campus Login URL column
     if campus_login_url_col and campus_login_url_col != 'Campus Login URL':
         attendance_normalized['Campus Login URL'] = attendance_normalized[campus_login_url_col]
     elif 'Campus Login URL' not in attendance_normalized.columns:
         attendance_normalized['Campus Login URL'] = None
-    
+
+    # Apply to_hours directly to exact column names (if they exist)
     # Convert time-based columns from "HH:MM" strings to numeric hours
-    # Find and convert "Scheduled Hours to Date"
-    scheduled_col = None
-    for col in attendance_normalized.columns:
-        if 'scheduled hours' in col.lower().strip() and 'date' in col.lower().strip():
-            scheduled_col = col
-            break
+    if 'Scheduled Hours to Date' in attendance_normalized.columns:
+        attendance_normalized['Scheduled Hours to Date'] = attendance_normalized['Scheduled Hours to Date'].apply(to_hours)
     
-    if scheduled_col:
-        attendance_normalized['Scheduled Hours to Date'] = attendance_normalized[scheduled_col].apply(to_hours)
+    if 'Attended Hours to Date' in attendance_normalized.columns:
+        attendance_normalized['Attended Hours to Date'] = attendance_normalized['Attended Hours to Date'].apply(to_hours)
     
-    # Find and convert "Attended Hours to Date"
-    attended_hours_col = None
-    for col in attendance_normalized.columns:
-        if 'attended hours' in col.lower().strip() and 'date' in col.lower().strip():
-            attended_hours_col = col
-            break
+    if 'Missed Hours to Date' in attendance_normalized.columns:
+        attendance_normalized['Missed Hours to Date'] = attendance_normalized['Missed Hours to Date'].apply(to_hours)
     
-    if attended_hours_col:
-        attendance_normalized['Attended Hours to Date'] = attendance_normalized[attended_hours_col].apply(to_hours)
+    if 'Missed Minus Excused to date' in attendance_normalized.columns:
+        attendance_normalized['Missed Minus Excused to date'] = attendance_normalized['Missed Minus Excused to date'].apply(to_hours)
     
-    # Find and convert "Missed Hours to Date"
-    missed_hours_col = None
-    for col in attendance_normalized.columns:
-        if 'missed hours' in col.lower().strip() and 'date' in col.lower().strip():
-            missed_hours_col = col
-            break
-    
-    if missed_hours_col:
-        attendance_normalized['Missed Hours to Date'] = attendance_normalized[missed_hours_col].apply(to_hours)
-    
-    # Find and convert "Missed Minus Excused to date"
-    missed_excused_col = None
-    for col in attendance_normalized.columns:
-        if 'missed minus excused' in col.lower().strip() and 'date' in col.lower().strip():
-            missed_excused_col = col
-            break
-    
-    if missed_excused_col:
-        attendance_normalized['Missed Minus Excused to date'] = attendance_normalized[missed_excused_col].apply(to_hours)
-    
-    # Normalize "Attended % to Date." column
-    att_pct_col = None
-    possible_patterns = [
-        'attended % to date.',
-        'attended% to date.',
-        'attended % to date',
-        'attended% to date',
-        'attendance %',
-        'attendance%',
-        'attended %',
-        'attended%'
-    ]
-    
-    for pattern in possible_patterns:
-        for col in attendance_normalized.columns:
-            col_lower = col.lower().strip()
-            if pattern in col_lower:
-                att_pct_col = col
-                break
-        if att_pct_col:
-            break
-    
-    if att_pct_col:
-        # Apply normalize_attendance_pct function
-        attendance_normalized['Attended % to Date.'] = attendance_normalized[att_pct_col].apply(normalize_attendance_pct)
+    # Normalize percentage columns directly using exact column names
+    # Apply normalize_pct to "Attended % to Date." if it exists
+    if 'Attended % to Date.' in attendance_normalized.columns:
+        attendance_normalized['Attended % to Date.'] = attendance_normalized['Attended % to Date.'].apply(normalize_pct)
         attendance_normalized['attendance_pct'] = attendance_normalized['Attended % to Date.']
     else:
         # Column not found - try to calculate from hours
@@ -426,23 +398,25 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
             attendance_normalized['attendance_pct'] = 0.0
     
     # Normalize "% Missed" column if it exists
-    missed_pct_col = None
-    for col in attendance_normalized.columns:
-        col_lower = col.lower().strip()
-        if '% missed' in col_lower or '%missed' in col_lower:
-            missed_pct_col = col
-            break
-    
-    if missed_pct_col:
-        attendance_normalized['% Missed'] = attendance_normalized[missed_pct_col].apply(normalize_attendance_pct)
+    if '% Missed' in attendance_normalized.columns:
+        attendance_normalized['% Missed'] = attendance_normalized['% Missed'].apply(normalize_pct)
         attendance_normalized['missed_pct'] = attendance_normalized['% Missed']
     else:
         attendance_normalized['missed_pct'] = 0.0
     
-    # Ensure all numeric columns are clean (no NaN, Infinity)
-    numeric_cols = attendance_normalized.select_dtypes(include=[np.number]).columns
-    for col in numeric_cols:
-        attendance_normalized[col] = attendance_normalized[col].replace([np.inf, -np.inf, np.nan], 0.0)
+    # Clean invalid values (NaN, Infinity) before returning
+    attendance_normalized = attendance_normalized.replace([np.inf, -np.inf, np.nan], 0)
+    
+    # Debug: Print sample data to verify transformations
+    if 'Student Name' in attendance_normalized.columns:
+        sample_cols = ['Student Name']
+        if 'Attended Hours to Date' in attendance_normalized.columns:
+            sample_cols.append('Attended Hours to Date')
+        if 'Attended % to Date.' in attendance_normalized.columns:
+            sample_cols.append('Attended % to Date.')
+        print("\n=== Attendance DataFrame Sample (after normalization) ===")
+        print(attendance_normalized[sample_cols].head())
+        print("========================================================\n")
     
     return grades_normalized, attendance_normalized
 
