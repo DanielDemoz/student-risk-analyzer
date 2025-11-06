@@ -632,7 +632,7 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
         except (ValueError, TypeError) as e:
             print(f"Warning: Could not convert attendance_df Student# to numeric: {e}")
     
-    # Merge on Student# using inner join to only keep students present in both sheets
+    # Merge on Student# - try inner join first, fallback to left if no matches
     merged = pd.merge(
         grades_df,
         attendance_df,
@@ -642,6 +642,32 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     )
     
     print(f"After merge with inner join, merged shape: {merged.shape}")
+    
+    # If inner join resulted in no matches, try left join and show warning
+    if len(merged) == 0:
+        print("WARNING: Inner join resulted in 0 records. Trying left join...")
+        print(f"grades_df Student# unique count: {grades_df['Student#'].nunique()}")
+        print(f"attendance_df Student# unique count: {attendance_df['Student#'].nunique()}")
+        print(f"grades_df Student# values: {sorted(grades_df['Student#'].unique().tolist())[:10]}")
+        print(f"attendance_df Student# values: {sorted(attendance_df['Student#'].unique().tolist())[:10]}")
+        
+        # Try left join as fallback
+        merged = pd.merge(
+            grades_df,
+            attendance_df,
+            on='Student#',
+            how='left',  # Fallback to left join
+            suffixes=('_grades', '_attendance')
+        )
+        print(f"After left join fallback, merged shape: {merged.shape}")
+        
+        if len(merged) == 0:
+            raise ValueError(
+                f"No records found after merge. "
+                f"Grades sheet has {len(grades_df)} rows, "
+                f"Attendance sheet has {len(attendance_df)} rows. "
+                f"Student# values may not match between sheets."
+            )
     
     print(f"\n=== DEBUG: merge_data - AFTER MERGE ===")
     print(f"merged shape: {merged.shape}")

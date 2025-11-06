@@ -198,6 +198,10 @@ async def upload_file(
         merged_df = merge_data(grades_normalized, attendance_normalized)
         
         # Debug: Check merged dataframe
+        print(f"\n=== DEBUG: main.py - After merge_data ===")
+        print(f"merged_df shape: {merged_df.shape}")
+        print(f"merged_df columns: {list(merged_df.columns)}")
+        
         if 'attendance_pct' in merged_df.columns:
             merged_att_values = merged_df['attendance_pct']
             non_zero_merged = (merged_att_values > 0).sum()
@@ -207,9 +211,18 @@ async def upload_file(
             print(f"DEBUG: Merged columns: {list(merged_df.columns)}")
         
         if len(merged_df) == 0:
+            # Provide more detailed error message
+            error_detail = (
+                "No valid student records found in the Excel file after merging. "
+                f"Grades sheet has {len(grades_normalized)} rows, "
+                f"Attendance sheet has {len(attendance_normalized)} rows. "
+                "This usually means Student# values don't match between the two sheets. "
+                "Please check that Student# values are consistent in both sheets."
+            )
+            print(f"ERROR: {error_detail}")
             raise HTTPException(
                 status_code=400,
-                detail="No valid student records found in the Excel file"
+                detail=error_detail
             )
         
         # Clean invalid or missing numeric values before JSON conversion
