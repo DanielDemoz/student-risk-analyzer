@@ -15,6 +15,7 @@ class StudentRiskResult(BaseModel):
     risk_category: str
     simple_rule_flagged: bool
     campus_login_url: str
+    data_status: str  # "Complete", "Missing Grade", "Missing Attendance", "Missing Both"
     explanation: Optional[str] = None
 
 

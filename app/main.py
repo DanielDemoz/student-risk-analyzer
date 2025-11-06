@@ -277,18 +277,44 @@ async def upload_file(
                         attendance_pct = clean_numeric_value(row.get(col, 0))
                         break
             
+            # Get data status
+            data_status = str(row.get('data_status', 'Complete')).strip()
+            if data_status not in ['Complete', 'Missing Grade', 'Missing Attendance', 'Missing Both']:
+                data_status = 'Complete'
+            
             # Use row_idx (sequential) instead of DataFrame index
             try:
                 risk_score = clean_numeric_value(risk_scores[row_idx] if row_idx < len(risk_scores) else 0)
             except (IndexError, KeyError, TypeError):
                 risk_score = 0.0
             
+            # Adjust risk category based on data status
             try:
-                risk_category = categories[row_idx] if row_idx < len(categories) else 'Low'
+                base_category = categories[row_idx] if row_idx < len(categories) else 'Low'
             except (IndexError, KeyError, TypeError):
-                risk_category = 'Low'
+                base_category = 'Low'
             
-            simple_rule_flagged = simple_rule(grade_pct, attendance_pct)
+            # Override risk category if data is missing
+            if data_status == 'Missing Both':
+                risk_category = 'Insufficient Data'
+            elif data_status == 'Missing Grade':
+                risk_category = 'Missing Grade'
+            elif data_status == 'Missing Attendance':
+                risk_category = 'Missing Attendance'
+            else:
+                risk_category = base_category
+            
+            # Simple rule only applies if both values are available
+            if data_status == 'Complete':
+                simple_rule_flagged = simple_rule(grade_pct, attendance_pct)
+            else:
+                # If data is missing, flag based on available data
+                if data_status == 'Missing Grade':
+                    simple_rule_flagged = attendance_pct < 70.0
+                elif data_status == 'Missing Attendance':
+                    simple_rule_flagged = grade_pct < 70.0
+                else:
+                    simple_rule_flagged = False
             
             # Get Campus Login URL from attendance sheet (preferred) or grades sheet hyperlink
             campus_login_url_from_df = row.get('Campus Login URL')
@@ -311,6 +337,7 @@ async def upload_file(
                 risk_category=risk_category,
                 simple_rule_flagged=simple_rule_flagged,
                 campus_login_url=campus_login_url,
+                data_status=data_status,
                 explanation=explanation
             )
             results.append(result)

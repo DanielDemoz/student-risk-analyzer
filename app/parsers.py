@@ -830,6 +830,28 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     else:
         merged['grade_pct'] = merged['grade_pct'].fillna(0.0)
     
+    # Determine data status - label missing data
+    # Check if grade_pct is missing (0.0 or NaN) and attendance_pct is missing (0.0 or NaN)
+    grade_missing = (merged['grade_pct'] == 0.0) | merged['grade_pct'].isna()
+    attendance_missing = (merged['attendance_pct'] == 0.0) | merged['attendance_pct'].isna()
+    
+    # Create data_status column
+    merged['data_status'] = np.where(
+        grade_missing & attendance_missing,
+        'Missing Both',
+        np.where(
+            grade_missing,
+            'Missing Grade',
+            np.where(
+                attendance_missing,
+                'Missing Attendance',
+                'Complete'
+            )
+        )
+    )
+    
+    print(f"Data status counts: {merged['data_status'].value_counts().to_dict()}")
+    
     # Remove duplicates by Student# (keep first occurrence)
     # This handles cases where a student appears multiple times
     merged = merged.drop_duplicates(subset=['Student#'], keep='first')
