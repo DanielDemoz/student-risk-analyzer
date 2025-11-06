@@ -204,7 +204,14 @@ def get_explanation(
     """
     if model is None or scaler is None:
         # Use simple feature-based explanation
-        row = df.iloc[student_idx]
+        # Check bounds before accessing
+        if student_idx < 0 or student_idx >= len(df):
+            return None
+        
+        try:
+            row = df.iloc[student_idx]
+        except (IndexError, KeyError):
+            return None
         
         reasons = []
         if 'grade_pct' in df.columns and row.get('grade_pct', 100) < 70:

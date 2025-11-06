@@ -295,9 +295,16 @@ async def upload_file(
                 if not found_col and idx < 3:
                     print(f"DEBUG main.py: Row {idx} - No attendance column found! Available columns: {list(row.index)}")
             
-            risk_score = clean_numeric_value(risk_scores[idx] if idx < len(risk_scores) else 0)
+            # Safe indexing with bounds checking
+            try:
+                risk_score = clean_numeric_value(risk_scores[idx] if idx < len(risk_scores) else 0)
+            except (IndexError, KeyError, TypeError):
+                risk_score = 0.0
             
-            risk_category = categories[idx] if idx < len(categories) else 'Low'
+            try:
+                risk_category = categories[idx] if idx < len(categories) else 'Low'
+            except (IndexError, KeyError, TypeError):
+                risk_category = 'Low'
             simple_rule_flagged = simple_rule(grade_pct, attendance_pct)
             
             # Get Campus Login URL from attendance sheet (preferred) or grades sheet hyperlink
