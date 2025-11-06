@@ -1,5 +1,7 @@
 # Student Risk Analyzer
 
+> **📋 Excel File Format**: See [EXCEL_FORMAT_GUIDE.md](./EXCEL_FORMAT_GUIDE.md) for detailed instructions on how to structure your Excel file.
+
 A web application for analyzing student risk levels based on grades and attendance data. The application uses both simple rules and machine learning models to predict at-risk students and provides actionable insights for academic advisors.
 
 ## Features
