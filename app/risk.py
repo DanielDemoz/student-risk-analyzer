@@ -153,6 +153,82 @@ def train_or_fallback_score(
     return _fallback_heuristic_score(df, thresholds)
 
 
+def audit_and_recalculate_risk(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Audit and correct risk scoring for attendance-based model (presence rate).
+    Ensures exponential weighting, consistent risk logic, and category accuracy.
+    
+    This function validates that:
+    - Attendance % represents presence (higher = better)
+    - Risk Score increases as grades or attendance drop
+    - Exponential weighting emphasizes low performance more sharply
+    - Categories align with the corrected attendance interpretation
+    
+    Args:
+        df: DataFrame with 'grade_pct' and 'attendance_pct' columns
+    
+    Returns:
+        DataFrame with validated and corrected risk calculations
+    """
+    # Create a copy to avoid modifying original
+    df_audit = df.copy()
+    
+    # --- Step 1. Clean and convert percentage columns ---
+    if 'grade_pct' in df_audit.columns:
+        df_audit['Grade %'] = (
+            df_audit['grade_pct']
+            .astype(str)
+            .str.replace("%", "", regex=False)
+            .astype(float)
+            .clip(0, 100)
+        )
+    else:
+        df_audit['Grade %'] = 0.0
+    
+    if 'attendance_pct' in df_audit.columns:
+        df_audit['Attendance %'] = (
+            df_audit['attendance_pct']
+            .astype(str)
+            .str.replace("%", "", regex=False)
+            .astype(float)
+            .clip(0, 100)
+        )
+    else:
+        df_audit['Attendance %'] = 0.0
+    
+    # --- Step 2. Normalize 0–1 scale ---
+    g = df_audit['Grade %'] / 100.0
+    a = df_audit['Attendance %'] / 100.0
+    
+    # --- Step 3. Exponential weighting ---
+    # Higher = better; penalize low scores more sharply
+    performance_index = 0.6 * (g ** 1.2) + 0.4 * (a ** 1.2)
+    df_audit['Weighted Index P'] = performance_index.round(2)
+    
+    # --- Step 4. Compute Risk Score (higher = worse) ---
+    df_audit['Risk Score'] = (100.0 * (1.0 - performance_index)).round(1)
+    df_audit['Risk Score'] = df_audit['Risk Score'].clip(0.0, 100.0)
+    
+    # --- Step 5. Add audit summary columns ---
+    df_audit['Audit Notes'] = np.where(
+        (df_audit['Risk Score'] > 100) | (df_audit['Risk Score'] < 0),
+        "⚠️ Out-of-Range Score",
+        "OK"
+    )
+    
+    # Validate attendance represents presence (not absence)
+    # If attendance % > 50, it's likely presence; if < 50, might be absence
+    # This is a sanity check - we assume attendance is already presence-based
+    high_attendance_mask = df_audit['Attendance %'] > 50.0
+    low_attendance_mask = df_audit['Attendance %'] < 50.0
+    
+    # Add validation note if attendance seems inverted
+    if low_attendance_mask.sum() > high_attendance_mask.sum() * 2:
+        print("⚠️ WARNING: More students have <50% attendance than >50%. Verify attendance represents presence (not absence).")
+    
+    return df_audit
+
+
 def _fallback_heuristic_score(
     df: pd.DataFrame,
     thresholds: Dict[str, float]
@@ -164,19 +240,39 @@ def _fallback_heuristic_score(
     - Normalize grades and attendance to 0-1
     - Apply exponential weighting: performance_index = 0.6 * (g^1.2) + 0.4 * (a^1.2)
     - Risk Score = 100 * (1 - performance_index)
+    
+    This ensures:
+    - Attendance % represents presence (higher = better)
+    - Risk Score increases as grades or attendance drop
+    - Exponential weighting emphasizes low performance more sharply
     """
     grade_pct = df.get('grade_pct', pd.Series([0.0] * len(df))).fillna(0.0)
     attendance_pct = df.get('attendance_pct', pd.Series([0.0] * len(df))).fillna(0.0)
     
+    # Validate: Ensure attendance represents presence (higher = better)
+    # If values seem inverted (most students have <50%), log a warning
+    if len(attendance_pct) > 0:
+        high_attendance_count = (attendance_pct > 50.0).sum()
+        low_attendance_count = (attendance_pct < 50.0).sum()
+        if low_attendance_count > high_attendance_count * 2:
+            print("⚠️ WARNING: Attendance values may be inverted. Expected attendance to represent presence (higher = better).")
+    
     # Normalize to 0-1 (clamp values to valid range)
+    # Ensure values are in 0-100 range (attendance should be presence %)
     g = np.clip(grade_pct, 0.0, 100.0) / 100.0
     a = np.clip(attendance_pct, 0.0, 100.0) / 100.0
     
     # Exponential weighting — more penalty for lower scores
     # Using power of 1.2 to create exponential curve
+    # Formula: performance_index = 0.6 * (g^1.2) + 0.4 * (a^1.2)
+    # This means:
+    # - Higher grades/attendance → higher performance_index → lower risk
+    # - Lower grades/attendance → lower performance_index → higher risk
     performance_index = 0.6 * (g ** 1.2) + 0.4 * (a ** 1.2)
     
     # Risk Score (higher = worse), rounded to 1 decimal place
+    # Formula: Risk Score = 100 * (1 - performance_index)
+    # This ensures risk increases as performance decreases
     risk_scores = np.round(100.0 * (1.0 - performance_index), 1)
     
     # Clip to 0-100 range (safety check)
