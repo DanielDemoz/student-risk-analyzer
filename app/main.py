@@ -179,13 +179,50 @@ async def upload_file(
     
     try:
         # Load and parse Excel
-        grades_df, attendance_df, name_hyperlinks = load_excel(file_bytes)
+        try:
+            grades_df, attendance_df, name_hyperlinks = load_excel(file_bytes)
+        except Exception as e:
+            error_msg = f"Error loading Excel file: {str(e)}"
+            print(f"ERROR: {error_msg}")
+            print(f"Exception type: {type(e).__name__}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
+            raise HTTPException(status_code=400, detail=error_msg)
+        
+        # Verify Student Name exists in both DataFrames
+        if 'Student Name' not in grades_df.columns:
+            print(f"ERROR: 'Student Name' missing in grades_df. Columns: {list(grades_df.columns)}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"'Student Name' column missing in grades sheet. Found columns: {list(grades_df.columns)}"
+            )
+        
+        if 'Student Name' not in attendance_df.columns:
+            print(f"ERROR: 'Student Name' missing in attendance_df. Columns: {list(attendance_df.columns)}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"'Student Name' column missing in attendance sheet. Found columns: {list(attendance_df.columns)}"
+            )
         
         # Normalize data
-        grades_normalized, attendance_normalized = normalize_data(grades_df, attendance_df)
+        try:
+            grades_normalized, attendance_normalized = normalize_data(grades_df, attendance_df)
+        except Exception as e:
+            error_msg = f"Error normalizing data: {str(e)}"
+            print(f"ERROR: {error_msg}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
+            raise HTTPException(status_code=400, detail=error_msg)
         
         # Merge data
-        merged_df = merge_data(grades_normalized, attendance_normalized)
+        try:
+            merged_df = merge_data(grades_normalized, attendance_normalized)
+        except Exception as e:
+            error_msg = f"Error merging data: {str(e)}"
+            print(f"ERROR: {error_msg}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
+            raise HTTPException(status_code=400, detail=error_msg)
         
         print(f"Processed: {len(merged_df)} students")
         
