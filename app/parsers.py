@@ -9,6 +9,80 @@ from openpyxl import load_workbook
 from openpyxl.cell.cell import Cell
 
 
+def normalize_and_rename_columns(df: pd.DataFrame, sheet_type: str) -> pd.DataFrame:
+    """
+    Clean and standardize column names for both Grades and Attendance sheets.
+    Handles minor naming variations and formatting differences.
+    
+    Args:
+        df: DataFrame to normalize
+        sheet_type: "grades" or "attendance"
+    
+    Returns:
+        DataFrame with normalized column names
+    """
+    # Create a copy to avoid modifying the original
+    df = df.copy()
+    
+    # Normalize base names (lowercase, trimmed, remove dots/%)
+    # Keep original column mapping for reference
+    original_columns = df.columns.tolist()
+    normalized_columns = [
+        re.sub(r'\s+', ' ', c.strip().lower().replace('.', '').replace('%', '').replace(',', ''))
+        for c in df.columns
+    ]
+    
+    # Create mapping from normalized to original for reference
+    col_mapping = dict(zip(original_columns, normalized_columns))
+    
+    if sheet_type == "grades":
+        rename_map = {
+            "student#": "Student#",
+            "student number": "Student#",
+            "student name": "Student Name",
+            "program name": "Program Name",
+            "program grade": "current overall Program Grade",
+            "grade": "current overall Program Grade",
+            "overall program grade": "current overall Program Grade",
+            "current overall program grade": "current overall Program Grade",
+        }
+    elif sheet_type == "attendance":
+        rename_map = {
+            "student#": "Student#",
+            "student number": "Student#",
+            "student name": "Student Name",
+            "scheduled hours to date": "Scheduled Hours to Date",
+            "attended hours to date": "Attended Hours to Date",
+            "attended to date": "Attended % to Date.",
+            "attended percent to date": "Attended % to Date.",
+            "attended % to date": "Attended % to Date.",
+            "attended  to date": "Attended % to Date.",  # Handle double space
+            "missed hours to date": "Missed Hours to Date",
+            "% missed": "% Missed",
+            "missed": "% Missed",
+            "missed minus excused to date": "Missed Minus Excused to date",
+            "missed minus excused to date": "Missed Minus Excused to date",
+            "campus login url": "Campus Login URL",
+        }
+    else:
+        # Unknown sheet type, just normalize whitespace
+        rename_map = {}
+    
+    # Build actual rename mapping from original columns to standard names
+    actual_rename = {}
+    for orig_col in original_columns:
+        normalized = col_mapping[orig_col]
+        if normalized in rename_map:
+            actual_rename[orig_col] = rename_map[normalized]
+    
+    # Apply renaming
+    if actual_rename:
+        df = df.rename(columns=actual_rename)
+        print(f"DEBUG: Renamed columns in {sheet_type} sheet: {actual_rename}")
+    
+    return df
+
+
 def clean_student_id(df: pd.DataFrame) -> pd.DataFrame:
     """
     Standardize Student# column so merge keys match.
@@ -430,7 +504,16 @@ def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str,
     # Load attendance dataframe
     attendance_df = pd.read_excel(excel_file, sheet_name=attendance_sheet_name, engine='openpyxl')
     
-    # Normalize column names (strip whitespace, handle variations) BEFORE cleaning
+    # Normalize and rename columns to handle variations BEFORE validation
+    print(f"DEBUG: Original grades columns: {list(grades_df.columns)}")
+    grades_df = normalize_and_rename_columns(grades_df, "grades")
+    print(f"DEBUG: Normalized grades columns: {list(grades_df.columns)}")
+    
+    print(f"DEBUG: Original attendance columns: {list(attendance_df.columns)}")
+    attendance_df = normalize_and_rename_columns(attendance_df, "attendance")
+    print(f"DEBUG: Normalized attendance columns: {list(attendance_df.columns)}")
+    
+    # Also strip whitespace from column names (additional cleanup)
     grades_df.columns = grades_df.columns.str.strip()
     attendance_df.columns = attendance_df.columns.str.strip()
     
