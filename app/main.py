@@ -299,6 +299,30 @@ async def upload_file(
         # Ensure index is reset to avoid serial number in output
         merged_df = merged_df.reset_index(drop=True)
         
+        # Standardize column names after merge to ensure consistent access
+        # This helps avoid confusion with suffixed columns (_grades, _attendance)
+        column_rename_map = {}
+        
+        # Standardize Student# - prioritize the merge key, then suffixed versions
+        if 'Student#' in merged_df.columns:
+            # Keep as is if it's the merge key
+            pass
+        elif 'Student#_grades' in merged_df.columns:
+            column_rename_map['Student#_grades'] = 'Student#'
+        elif 'Student#_attendance' in merged_df.columns:
+            column_rename_map['Student#_attendance'] = 'Student#'
+        
+        # Standardize Student Name - prioritize _grades, then _attendance, then base
+        if 'Student Name_grades' in merged_df.columns:
+            column_rename_map['Student Name_grades'] = 'Student Name'
+        elif 'Student Name_attendance' in merged_df.columns and 'Student Name' not in merged_df.columns:
+            column_rename_map['Student Name_attendance'] = 'Student Name'
+        
+        # Apply renaming
+        if column_rename_map:
+            merged_df = merged_df.rename(columns=column_rename_map)
+            print(f"DEBUG: Renamed columns after merge: {column_rename_map}")
+        
         # Debug: Print column names to understand merge structure
         print(f"DEBUG: Merged DataFrame columns: {list(merged_df.columns)}")
         print(f"DEBUG: Merged DataFrame shape: {merged_df.shape}")
@@ -323,15 +347,16 @@ async def upload_file(
                 for col in student_id_cols:
                     print(f"    {col}: {row.get(col)}")
             
-            # Extract Student# - handle merge suffixes (_grades, _attendance)
-            # Priority: Student# (merge key) > Student#_grades > Student#_attendance
+            # Extract Student# - After standardization, should be in 'Student#' column
             # IMPORTANT: Do NOT use DataFrame index - it's just a row number, not the Student ID
             student_id_val = None
             student_id_source = None
             
+            # After standardization, Student# should be the primary column
             if 'Student#' in row.index and pd.notna(row.get('Student#')):
                 student_id_val = row.get('Student#')
                 student_id_source = 'Student#'
+            # Fallback to suffixed versions if standardization didn't work
             elif 'Student#_grades' in row.index and pd.notna(row.get('Student#_grades')):
                 student_id_val = row.get('Student#_grades')
                 student_id_source = 'Student#_grades'
@@ -353,6 +378,10 @@ async def upload_file(
             else:
                 # Convert to string and strip - this is the numeric ID
                 student_id_str = str(student_id_val).strip()
+                # Remove any decimal point if it's a float (e.g., "609571.0" -> "609571")
+                if '.' in student_id_str and student_id_str.replace('.', '').isdigit():
+                    student_id_str = student_id_str.split('.')[0]
+                
                 # Validate: Real Student IDs are typically 6-7 digits (e.g., 5686877, 609571)
                 # If it's a small number (< 1000), it might be the index or wrong column
                 try:
@@ -367,6 +396,9 @@ async def upload_file(
                                 alt_val = row.get(col)
                                 if pd.notna(alt_val):
                                     alt_str = str(alt_val).strip()
+                                    # Remove decimal point if present
+                                    if '.' in alt_str and alt_str.replace('.', '').isdigit():
+                                        alt_str = alt_str.split('.')[0]
                                     try:
                                         alt_num = int(float(alt_str))
                                         if alt_num >= 1000:  # More likely to be a real ID
@@ -386,20 +418,22 @@ async def upload_file(
                         print(f"  Student ID '{student_id_str}' is not numeric, but using it anyway")
                 student_id = student_id_str
             
-            # Extract Student Name - handle merge suffixes (_grades, _attendance)
-            # Priority: Student Name_grades > Student Name_attendance > Student Name
+            # Extract Student Name - After standardization, should be in 'Student Name' column
+            # Priority: Student Name (standardized) > Student Name_grades > Student Name_attendance
             student_name_val = None
             student_name_source = None
             
-            if 'Student Name_grades' in row.index and pd.notna(row.get('Student Name_grades')):
+            # After standardization, Student Name should be the primary column
+            if 'Student Name' in row.index and pd.notna(row.get('Student Name')):
+                student_name_val = row.get('Student Name')
+                student_name_source = 'Student Name'
+            # Fallback to suffixed versions if standardization didn't work
+            elif 'Student Name_grades' in row.index and pd.notna(row.get('Student Name_grades')):
                 student_name_val = row.get('Student Name_grades')
                 student_name_source = 'Student Name_grades'
             elif 'Student Name_attendance' in row.index and pd.notna(row.get('Student Name_attendance')):
                 student_name_val = row.get('Student Name_attendance')
                 student_name_source = 'Student Name_attendance'
-            elif 'Student Name' in row.index and pd.notna(row.get('Student Name')):
-                student_name_val = row.get('Student Name')
-                student_name_source = 'Student Name'
             else:
                 # Try alternative column names
                 for col in ['Name', 'student_name', 'Full Name']:
