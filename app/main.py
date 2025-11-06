@@ -237,12 +237,27 @@ async def upload_file(
         else:
             risk_scores = [clean_numeric_value(score) for score in risk_scores]
         
-        # Build results
+        # Reset index to ensure sequential indexing for risk_scores and categories
+        merged_df = merged_df.reset_index(drop=True)
+        
+        # Build results - use enumerate to get sequential index
         results = []
-        for idx, row in merged_df.iterrows():
+        for row_idx, (_, row) in enumerate(merged_df.iterrows()):
             student_id = str(row['Student#']).strip()
-            student_name = str(row.get('Student Name', 'Unknown')).strip()
-            program_name = str(row.get('Program Name', 'Unknown')).strip()
+            
+            # Handle Student Name - clean NaN values
+            student_name_val = row.get('Student Name', 'Unknown')
+            if pd.isna(student_name_val) or str(student_name_val).strip().lower() in ['nan', 'none', '']:
+                student_name = 'Unknown'
+            else:
+                student_name = str(student_name_val).strip()
+            
+            # Handle Program Name - clean NaN values
+            program_name_val = row.get('Program Name', 'Unknown')
+            if pd.isna(program_name_val) or str(program_name_val).strip().lower() in ['nan', 'none', '']:
+                program_name = 'Unknown'
+            else:
+                program_name = str(program_name_val).strip()
             
             # Clean numeric values to ensure JSON compliance
             grade_pct = clean_numeric_value(row.get('grade_pct', 0))
@@ -251,53 +266,40 @@ async def upload_file(
             attendance_pct = 0.0
             if 'attendance_pct' in row.index:
                 attendance_pct = clean_numeric_value(row.get('attendance_pct', 0))
-                if idx < 3:  # Debug first 3 rows
-                    print(f"DEBUG main.py: Row {idx} - Found attendance_pct: {attendance_pct}")
             elif 'attendance_pct_attendance' in row.index:
                 attendance_pct = clean_numeric_value(row.get('attendance_pct_attendance', 0))
-                if idx < 3:
-                    print(f"DEBUG main.py: Row {idx} - Found attendance_pct_attendance: {attendance_pct}")
             elif 'attendance_pct_grades' in row.index:
                 attendance_pct = clean_numeric_value(row.get('attendance_pct_grades', 0))
-                if idx < 3:
-                    print(f"DEBUG main.py: Row {idx} - Found attendance_pct_grades: {attendance_pct}")
             else:
                 # Try to find any column with attendance percentage
-                found_col = None
                 for col in row.index:
-                    if 'attendance' in str(col).lower() and ('%' in str(col) or 'pct' in str(col).lower()):
-                        found_col = col
+                    if 'attended' in str(col).lower() and ('%' in str(col) or 'pct' in str(col).lower()):
                         attendance_pct = clean_numeric_value(row.get(col, 0))
-                        if idx < 3:
-                            print(f"DEBUG main.py: Row {idx} - Found column '{col}': {attendance_pct}")
                         break
-                if not found_col and idx < 3:
-                    print(f"DEBUG main.py: Row {idx} - No attendance column found! Available columns: {list(row.index)}")
             
-            # Safe indexing with bounds checking
+            # Use row_idx (sequential) instead of DataFrame index
             try:
-                risk_score = clean_numeric_value(risk_scores[idx] if idx < len(risk_scores) else 0)
+                risk_score = clean_numeric_value(risk_scores[row_idx] if row_idx < len(risk_scores) else 0)
             except (IndexError, KeyError, TypeError):
                 risk_score = 0.0
             
             try:
-                risk_category = categories[idx] if idx < len(categories) else 'Low'
+                risk_category = categories[row_idx] if row_idx < len(categories) else 'Low'
             except (IndexError, KeyError, TypeError):
                 risk_category = 'Low'
+            
             simple_rule_flagged = simple_rule(grade_pct, attendance_pct)
             
             # Get Campus Login URL from attendance sheet (preferred) or grades sheet hyperlink
             campus_login_url_from_df = row.get('Campus Login URL')
             if pd.notna(campus_login_url_from_df) and campus_login_url_from_df:
-                # Use hyperlink from attendance sheet
                 campus_login_url = str(campus_login_url_from_df)
             else:
-                # Fallback to grades sheet hyperlink or base URL
                 hyperlink = name_hyperlinks.get(student_id)
                 campus_login_url = build_campus_login_url(student_id, hyperlink)
             
-            # Get explanation
-            explanation = get_explanation(idx, merged_df, model, scaler, feature_cols)
+            # Get explanation - use row_idx for sequential access
+            explanation = get_explanation(row_idx, merged_df, model, scaler, feature_cols)
             
             result = StudentRiskResult(
                 student_id=student_id,
