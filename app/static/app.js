@@ -247,8 +247,8 @@ function createTableRow(result) {
     const badgeClass = `badge-${result.risk_category.toLowerCase()}`;
     const badge = `<span class="badge ${badgeClass}">${result.risk_category}</span>`;
 
-    // Student name with link
-    const studentNameLink = `<a href="${result.campus_login_url}" target="_blank">${result.student_name}</a>`;
+    // Student name with link (for Campus Login - but we'll show name separately in table)
+    const studentNameLink = `<a href="${result.campus_login_url}" target="_blank">${result.student_name || 'Unknown'}</a>`;
 
     // Explanation tooltip
     let explanationAttr = '';
@@ -259,9 +259,12 @@ function createTableRow(result) {
     // Risk Assessment combines score and category
     const riskAssessment = `${result.risk_score.toFixed(1)} (${result.risk_category})`;
     
+    // Student name (not linked, just text)
+    const studentName = result.student_name || 'Unknown';
+    
     row.innerHTML = `
-        <td>${studentNameLink}</td>
         <td>${studentId}</td>
+        <td>${studentName}</td>
         <td>${result.program_name}</td>
         <td>${result.grade_pct.toFixed(1)}%</td>
         <td>${result.attendance_pct.toFixed(1)}%</td>
