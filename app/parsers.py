@@ -732,105 +732,39 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
 def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataFrame:
     """
     Merge grades and attendance data on Student#.
-    
-    Prefers Grades sheet name for display.
-    Preserves Campus Login URL from attendance sheet.
+    Uses outer join to include ALL students from both sheets.
     """
-    # Debug: Check what we're merging
-    print(f"\n=== DEBUG: merge_data - BEFORE MERGE ===")
-    print(f"grades_df columns: {list(grades_df.columns)}")
-    print(f"grades_df shape: {grades_df.shape}")
-    if 'attendance_pct' in grades_df.columns:
-        print(f"grades_df has attendance_pct: {grades_df['attendance_pct'].head(3).tolist()}")
+    # Ensure Student# exists and is numeric in both DataFrames
+    if 'Student#' not in grades_df.columns or 'Student#' not in attendance_df.columns:
+        raise ValueError("Student# column missing in one or both DataFrames")
     
-    print(f"attendance_df columns: {list(attendance_df.columns)}")
-    print(f"attendance_df shape: {attendance_df.shape}")
-    if 'attendance_pct' in attendance_df.columns:
-        print(f"attendance_df has attendance_pct: {attendance_df['attendance_pct'].head(3).tolist()}")
-    if 'Attended % to Date.' in attendance_df.columns:
-        print(f"attendance_df has 'Attended % to Date.': {attendance_df['Attended % to Date.'].head(3).tolist()}")
+    # Convert Student# to numeric (int) for consistent matching
+    try:
+        grades_df['Student#'] = pd.to_numeric(grades_df['Student#'], errors='coerce').fillna(0).astype(int)
+        attendance_df['Student#'] = pd.to_numeric(attendance_df['Student#'], errors='coerce').fillna(0).astype(int)
+    except (ValueError, TypeError):
+        # Fallback to string if conversion fails
+        grades_df['Student#'] = grades_df['Student#'].astype(str).str.strip()
+        attendance_df['Student#'] = attendance_df['Student#'].astype(str).str.strip()
     
-    # Check Student# columns
-    if 'Student#' in grades_df.columns:
-        print(f"grades_df Student# sample: {grades_df['Student#'].head(3).tolist()}")
-        print(f"grades_df Student# dtype: {grades_df['Student#'].dtype}")
-    if 'Student#' in attendance_df.columns:
-        print(f"attendance_df Student# sample: {attendance_df['Student#'].head(3).tolist()}")
-        print(f"attendance_df Student# dtype: {attendance_df['Student#'].dtype}")
+    # Remove rows with invalid Student# (0 or NaN)
+    grades_df = grades_df[grades_df['Student#'] != 0].copy()
+    attendance_df = attendance_df[attendance_df['Student#'] != 0].copy()
     
-    # Ensure Student# types match in both DataFrames before merging
-    # Check if Student# is already numeric or string
-    if 'Student#' in grades_df.columns and 'Student#' in attendance_df.columns:
-        grades_dtype = grades_df['Student#'].dtype
-        attendance_dtype = attendance_df['Student#'].dtype
-        
-        print(f"Before merge conversion - grades_df Student# dtype: {grades_dtype}, attendance_df Student# dtype: {attendance_dtype}")
-        
-        # If one is numeric and one is string, convert both to string for matching
-        if (pd.api.types.is_numeric_dtype(grades_dtype) and not pd.api.types.is_numeric_dtype(attendance_dtype)) or \
-           (not pd.api.types.is_numeric_dtype(grades_dtype) and pd.api.types.is_numeric_dtype(attendance_dtype)):
-            print("WARNING: Student# types don't match, converting both to string for matching")
-            grades_df['Student#'] = grades_df['Student#'].astype(str).str.strip()
-            attendance_df['Student#'] = attendance_df['Student#'].astype(str).str.strip()
-        elif not pd.api.types.is_numeric_dtype(grades_dtype) and not pd.api.types.is_numeric_dtype(attendance_dtype):
-            # Both are strings, ensure they're clean
-            grades_df['Student#'] = grades_df['Student#'].astype(str).str.strip()
-            attendance_df['Student#'] = attendance_df['Student#'].astype(str).str.strip()
-        else:
-            # Both are numeric, ensure they're the same type
-            try:
-                grades_df['Student#'] = pd.to_numeric(grades_df['Student#'], errors='coerce').fillna(0).astype(int)
-                attendance_df['Student#'] = pd.to_numeric(attendance_df['Student#'], errors='coerce').fillna(0).astype(int)
-                print(f"Converted both to int, grades sample: {grades_df['Student#'].head(3).tolist()}, attendance sample: {attendance_df['Student#'].head(3).tolist()}")
-            except (ValueError, TypeError) as e:
-                print(f"Warning: Could not convert to numeric: {e}, using string format")
-                grades_df['Student#'] = grades_df['Student#'].astype(str).str.strip()
-                attendance_df['Student#'] = attendance_df['Student#'].astype(str).str.strip()
+    print(f"Merging: grades_df={len(grades_df)} rows, attendance_df={len(attendance_df)} rows")
     
-    # Merge on Student# using outer join to include ALL students from both sheets
-    # This ensures students with only grades OR only attendance are included
-    print(f"Before merge - grades_df: {len(grades_df)} rows, attendance_df: {len(attendance_df)} rows")
-    print(f"Unique Student# in grades: {grades_df['Student#'].nunique()}, in attendance: {attendance_df['Student#'].nunique()}")
-    
+    # Merge using outer join to include ALL students
     merged = pd.merge(
         grades_df,
         attendance_df,
         on='Student#',
-        how='outer',  # Use outer join to include ALL students from both sheets
+        how='outer',  # Include all students from both sheets
         suffixes=('_grades', '_attendance')
     )
     
-    print(f"After merge with outer join, merged shape: {merged.shape}")
-    print(f"Total unique students after merge: {merged['Student#'].nunique()}")
+    print(f"After merge: {len(merged)} rows, {merged['Student#'].nunique()} unique students")
     
-    # If merge resulted in no records, something is wrong
-    if len(merged) == 0:
-        print("WARNING: Outer join resulted in 0 records. This should not happen.")
-        print(f"grades_df Student# unique count: {grades_df['Student#'].nunique()}")
-        print(f"attendance_df Student# unique count: {attendance_df['Student#'].nunique()}")
-        print(f"grades_df Student# sample values: {sorted(grades_df['Student#'].unique().tolist())[:10]}")
-        print(f"attendance_df Student# sample values: {sorted(attendance_df['Student#'].unique().tolist())[:10]}")
-        
-        raise ValueError(
-            f"No records found after merge. "
-            f"Grades sheet has {len(grades_df)} rows, "
-            f"Attendance sheet has {len(attendance_df)} rows. "
-            f"Student# values may not match between sheets."
-        )
-    
-    print(f"\n=== DEBUG: merge_data - AFTER MERGE ===")
-    print(f"merged shape: {merged.shape}")
-    print(f"merged columns: {list(merged.columns)}")
-    if 'attendance_pct' in merged.columns:
-        print(f"merged has attendance_pct: {merged['attendance_pct'].head(3).tolist()}")
-    if 'attendance_pct_attendance' in merged.columns:
-        print(f"merged has attendance_pct_attendance: {merged['attendance_pct_attendance'].head(3).tolist()}")
-    if 'attendance_pct_grades' in merged.columns:
-        print(f"merged has attendance_pct_grades: {merged['attendance_pct_grades'].head(3).tolist()}")
-    if 'Attended % to Date.' in merged.columns:
-        print(f"merged has 'Attended % to Date.': {merged['Attended % to Date.'].head(3).tolist()}")
-    
-    # Prefer Grades sheet name, but use attendance if grades is missing
+    # Handle Student Name - prefer grades, fallback to attendance
     if 'Student Name_grades' in merged.columns and 'Student Name_attendance' in merged.columns:
         merged['Student Name'] = merged['Student Name_grades'].fillna(merged['Student Name_attendance'])
         merged = merged.drop(columns=['Student Name_grades', 'Student Name_attendance'])
@@ -841,13 +775,11 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
         merged['Student Name'] = merged['Student Name_attendance']
         merged = merged.drop(columns=['Student Name_attendance'])
     else:
-        # If neither exists, create empty column
         merged['Student Name'] = 'Unknown'
     
-    # Prefer Grades sheet program name, but use attendance if grades is missing
+    # Handle Program Name - prefer grades, fallback to attendance
     if 'Program Name' in merged.columns:
-        # Already from grades, keep as is
-        pass
+        pass  # Already from grades
     elif 'Program Name_grades' in merged.columns:
         merged['Program Name'] = merged['Program Name_grades']
         merged = merged.drop(columns=['Program Name_grades'])
@@ -855,7 +787,6 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
         merged['Program Name'] = merged['Program Name_attendance']
         merged = merged.drop(columns=['Program Name_attendance'])
     else:
-        # If neither exists, create empty column
         merged['Program Name'] = 'Unknown'
     
     # Preserve Campus Login URL from attendance sheet (if it exists)
@@ -867,44 +798,26 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
         else:
             merged['Campus Login URL'] = None
     
-    # Preserve attendance_pct from attendance sheet (critical!)
-    # Also ensure grade_pct is preserved from grades sheet
-    print(f"\n=== DEBUG: merge_data - PRESERVING attendance_pct and grade_pct ===")
-    
-    # Handle attendance_pct
+    # Preserve attendance_pct from attendance sheet
     if 'attendance_pct' not in merged.columns:
-        print("attendance_pct not in merged.columns, checking for suffixed versions...")
-        # Check if it exists with suffix
         if 'attendance_pct_attendance' in merged.columns:
-            print(f"Found attendance_pct_attendance, values: {merged['attendance_pct_attendance'].head(3).tolist()}")
             merged['attendance_pct'] = merged['attendance_pct_attendance'].fillna(0.0)
             merged = merged.drop(columns=['attendance_pct_attendance'])
-            print(f"Set attendance_pct from attendance_pct_attendance: {merged['attendance_pct'].head(3).tolist()}")
         elif 'attendance_pct_grades' in merged.columns:
-            print(f"Found attendance_pct_grades, values: {merged['attendance_pct_grades'].head(3).tolist()}")
             merged['attendance_pct'] = merged['attendance_pct_grades'].fillna(0.0)
             merged = merged.drop(columns=['attendance_pct_grades'])
-            print(f"Set attendance_pct from attendance_pct_grades: {merged['attendance_pct'].head(3).tolist()}")
         else:
             # Try to find any attendance percentage column
-            print("Searching for attendance percentage columns...")
-            found_col = None
             for col in merged.columns:
-                col_lower = str(col).lower()
-                if 'attended' in col_lower and ('%' in str(col) or 'pct' in col_lower):
-                    found_col = col
-                    print(f"Found column '{col}', values: {merged[col].head(3).tolist()}")
+                if 'attended' in str(col).lower() and ('%' in str(col) or 'pct' in str(col).lower()):
                     merged['attendance_pct'] = merged[col].fillna(0.0)
-                    print(f"Set attendance_pct from '{col}': {merged['attendance_pct'].head(3).tolist()}")
                     break
-            if not found_col:
-                print("WARNING: No attendance percentage column found, setting to 0.0")
+            else:
                 merged['attendance_pct'] = 0.0
     else:
         merged['attendance_pct'] = merged['attendance_pct'].fillna(0.0)
-        print(f"attendance_pct already in merged.columns, values: {merged['attendance_pct'].head(3).tolist()}")
     
-    # Handle grade_pct - ensure it exists and fill missing values with 0
+    # Preserve grade_pct from grades sheet
     if 'grade_pct' not in merged.columns:
         if 'grade_pct_grades' in merged.columns:
             merged['grade_pct'] = merged['grade_pct_grades'].fillna(0.0)
@@ -916,9 +829,6 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
             merged['grade_pct'] = 0.0
     else:
         merged['grade_pct'] = merged['grade_pct'].fillna(0.0)
-    
-    print(f"Final merged shape: {merged.shape}, grade_pct non-null: {merged['grade_pct'].notna().sum()}, attendance_pct non-null: {merged['attendance_pct'].notna().sum()}")
-    print(f"=== END DEBUG: merge_data ===\n")
     
     # Deduplicate by Student# (keep last row)
     merged = merged.drop_duplicates(subset=['Student#'], keep='last')
