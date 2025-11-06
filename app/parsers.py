@@ -599,25 +599,31 @@ def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str,
         else:
             attendance_df['Campus Login URL'] = None
     
-    # Validate required columns (case-insensitive)
+    # Validate required columns (case-insensitive, after normalization)
     required_grades_cols = ['Student#', 'Student Name', 'Program Name', 'current overall Program Grade']
     required_attendance_cols = ['Student#', 'Student Name', 'Scheduled Hours to Date', 
                                 'Attended Hours to Date', 'Attended % to Date.', 
                                 'Missed Hours to Date', '% Missed', 'Missed Minus Excused to date']
     
-    # Check for column name variations (case-insensitive, handle whitespace)
-    grades_cols_lower = {col.lower().strip(): col for col in grades_df.columns}
-    attendance_cols_lower = {col.lower().strip(): col for col in attendance_df.columns}
+    # Check for column name variations (case-insensitive, handle whitespace, dots, %)
+    # Normalize column names for comparison
+    def normalize_col_name(col_name):
+        return re.sub(r'\s+', ' ', col_name.lower().strip().replace('.', '').replace('%', '').replace(',', ''))
+    
+    grades_cols_normalized = {normalize_col_name(col): col for col in grades_df.columns}
+    attendance_cols_normalized = {normalize_col_name(col): col for col in attendance_df.columns}
     
     missing_grades = []
     missing_attendance = []
     
     for req_col in required_grades_cols:
-        if req_col.lower().strip() not in grades_cols_lower:
+        req_col_normalized = normalize_col_name(req_col)
+        if req_col_normalized not in grades_cols_normalized:
             missing_grades.append(req_col)
     
     for req_col in required_attendance_cols:
-        if req_col.lower().strip() not in attendance_cols_lower:
+        req_col_normalized = normalize_col_name(req_col)
+        if req_col_normalized not in attendance_cols_normalized:
             missing_attendance.append(req_col)
     
     if missing_grades or missing_attendance:
