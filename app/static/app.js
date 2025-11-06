@@ -20,9 +20,62 @@ function getApiEndpoint() {
 function saveApiEndpoint() {
     const endpoint = document.getElementById('apiEndpoint').value.trim();
     if (endpoint) {
-        localStorage.setItem('apiEndpoint', endpoint);
+        // Remove trailing slash
+        const cleanEndpoint = endpoint.replace(/\/$/, '');
+        localStorage.setItem('apiEndpoint', cleanEndpoint);
         showSuccess('API endpoint saved successfully!');
+        // Test the connection
+        testApiConnection(cleanEndpoint);
     }
+}
+
+// Test API connection
+async function testApiConnection(endpoint) {
+    if (!endpoint) {
+        showError('Please enter an API endpoint URL first.');
+        return;
+    }
+    
+    // Show loading state
+    const errorAlert = document.getElementById('errorAlert');
+    const successAlert = document.getElementById('successAlert');
+    errorAlert.classList.add('d-none');
+    successAlert.classList.add('d-none');
+    
+    try {
+        const response = await fetch(`${endpoint}/health`, {
+            method: 'GET',
+            signal: AbortSignal.timeout(5000) // 5 second timeout
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            showSuccess(`✅ Connection successful! Server is running at ${endpoint}`);
+        } else {
+            showError(`⚠️ Server responded but with an error (${response.status}). Please check your endpoint.`);
+        }
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            showError('⏱️ Connection timeout. Please check that the server is running and the URL is correct.');
+        } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+            showError(`❌ Cannot connect to server at ${endpoint}. Make sure:\n1. The server is running (use: python -m uvicorn app.main:app --reload)\n2. The URL is correct (e.g., http://localhost:8000)\n3. CORS is enabled on the server\n4. No firewall is blocking the connection`);
+        } else {
+            showError(`❌ Connection error: ${error.message}`);
+        }
+    }
+}
+
+// Test connection button handler
+function testConnection() {
+    const endpoint = document.getElementById('apiEndpoint').value.trim();
+    if (!endpoint) {
+        showError('Please enter an API endpoint URL first.');
+        return;
+    }
+    // Remove trailing slash
+    const cleanEndpoint = endpoint.replace(/\/$/, '');
+    document.getElementById('apiEndpoint').value = cleanEndpoint;
+    testApiConnection(cleanEndpoint);
 }
 
 // Initialize
@@ -36,6 +89,14 @@ document.addEventListener('DOMContentLoaded', function() {
     // Load saved API endpoint
     if (apiEndpointInput) {
         apiEndpointInput.value = getApiEndpoint();
+        // Test connection on page load if not localhost
+        if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+            const endpoint = getApiEndpoint();
+            if (endpoint && endpoint !== window.location.origin) {
+                // Only test if it's a different origin
+                testApiConnection(endpoint);
+            }
+        }
     }
 
     // Upload form handler
@@ -126,7 +187,8 @@ async function handleUpload(e) {
         if (error instanceof SyntaxError) {
             showError('Server returned invalid response. Please check the server logs.');
         } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-            showError('Unable to connect to the server. Please check that the API endpoint is correct and the server is running. You can configure the API endpoint in the Advanced settings above.');
+            const endpoint = getApiEndpoint();
+            showError(`Unable to connect to the server at ${endpoint}. Please:\n1. Make sure the server is running (python -m uvicorn app.main:app --reload)\n2. Check the API endpoint in Advanced settings\n3. Verify the URL is correct (e.g., http://localhost:8000)`);
         } else {
             showError(error.message || 'An error occurred while processing the file');
         }

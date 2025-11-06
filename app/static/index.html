@@ -49,9 +49,19 @@
                                 <label for="apiEndpoint" class="form-label small">API Endpoint URL</label>
                                 <input type="text" class="form-control form-control-sm" id="apiEndpoint" 
                                        placeholder="http://localhost:8000" value="http://localhost:8000">
-                                <div class="form-text small">Leave as default if running locally, or enter your server URL</div>
+                                <div class="form-text small">
+                                    <strong>For local use:</strong> http://localhost:8000<br>
+                                    <strong>For production:</strong> Enter your deployed API URL (e.g., https://your-api.com)
+                                </div>
                             </div>
-                            <button class="btn btn-sm brukd-btn-secondary" onclick="saveApiEndpoint()">Save</button>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-sm brukd-btn-secondary" onclick="saveApiEndpoint()">💾 Save & Test</button>
+                                <button class="btn btn-sm btn-outline-primary" onclick="testConnection()">🔍 Test Connection</button>
+                            </div>
+                            <div class="mt-2 small text-muted">
+                                <strong>💡 Don't have a server running?</strong><br>
+                                Run this command in your terminal: <code>python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000</code>
+                            </div>
                         </div>
                     </div>
                 </div>

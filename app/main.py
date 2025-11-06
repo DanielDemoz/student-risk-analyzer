@@ -126,6 +126,12 @@ async def root():
     return HTMLResponse(content="<h1>Student Risk Analyzer</h1><p>Static files not found. Please ensure the static directory exists.</p>")
 
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint to test server connectivity."""
+    return JSONResponse(content={"status": "ok", "message": "Server is running"})
+
+
 @app.post("/upload", response_model=UploadResponse)
 async def upload_file(
     file: UploadFile = File(...),
