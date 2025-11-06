@@ -246,6 +246,13 @@ async def upload_file(
         if 'Missed Hours to Date_hours' in merged_df.columns:
             feature_cols.append('Missed Hours to Date_hours')
         
+        # Compute risk scores using ML model or fallback heuristic
+        # This combines Grade % and Attendance % to predict at-risk students
+        print(f"\n=== DEBUG: Computing risk scores ===")
+        print(f"Feature columns: {feature_cols}")
+        print(f"Has target labels: {has_target}")
+        print(f"Risk thresholds: {RISK_THRESHOLDS}")
+        
         risk_scores, categories, model, scaler = train_or_fallback_score(
             merged_df, RISK_THRESHOLDS, has_target
         )
@@ -257,6 +264,11 @@ async def upload_file(
         else:
             # Convert to list and clean
             risk_scores = [clean_numeric_value(score) for score in risk_scores]
+        
+        print(f"Risk scores computed: {len(risk_scores)} scores")
+        print(f"Risk score range: min={min(risk_scores) if len(risk_scores) > 0 else 0:.2f}, max={max(risk_scores) if len(risk_scores) > 0 else 0:.2f}")
+        print(f"Risk categories: {dict(zip(*np.unique(categories, return_counts=True))) if len(categories) > 0 else {}}")
+        print(f"=== END DEBUG: Computing risk scores ===\n")
         
         # Build results
         results = []
@@ -334,7 +346,7 @@ async def upload_file(
             )
             results.append(result)
         
-        # Sort by risk score (descending)
+        # Sort by risk score (descending) - highest risk first
         results.sort(key=lambda x: x.risk_score, reverse=True)
         
         # Generate session ID
@@ -346,8 +358,15 @@ async def upload_file(
             'High': sum(1 for r in results if r.risk_category == 'High'),
             'Medium': sum(1 for r in results if r.risk_category == 'Medium'),
             'Low': sum(1 for r in results if r.risk_category == 'Low'),
-            'Total': len(results)
+            'Total': len(results),
+            'At Risk (Simple Rule)': sum(1 for r in results if r.simple_rule_flagged)
         }
+        
+        # Debug: Print sample results
+        print(f"\n=== DEBUG: Sample results (first 5) ===")
+        for i, r in enumerate(results[:5]):
+            print(f"Student {i+1}: {r.student_name} | Grade: {r.grade_pct:.1f}% | Attendance: {r.attendance_pct:.1f}% | Risk: {r.risk_score:.2f} ({r.risk_category}) | At Risk: {r.simple_rule_flagged}")
+        print(f"=== END DEBUG: Sample results ===\n")
         
         return UploadResponse(
             success=True,
