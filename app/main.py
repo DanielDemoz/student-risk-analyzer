@@ -317,82 +317,127 @@ async def upload_file(
             if row_idx < 5:  # Debug first 5 rows
                 print(f"DEBUG: Processing row {row_idx}")
                 print(f"  Available columns: {list(row.index)}")
+                # Print all Student# related columns
+                student_id_cols = [col for col in row.index if 'Student' in col and ('#' in col or 'ID' in col or 'id' in col.lower())]
+                print(f"  Student ID related columns: {student_id_cols}")
+                for col in student_id_cols:
+                    print(f"    {col}: {row.get(col)}")
             
             # Extract Student# - handle merge suffixes (_grades, _attendance)
             # Priority: Student# (merge key) > Student#_grades > Student#_attendance
             # IMPORTANT: Do NOT use DataFrame index - it's just a row number, not the Student ID
             student_id_val = None
+            student_id_source = None
+            
             if 'Student#' in row.index and pd.notna(row.get('Student#')):
                 student_id_val = row.get('Student#')
+                student_id_source = 'Student#'
             elif 'Student#_grades' in row.index and pd.notna(row.get('Student#_grades')):
                 student_id_val = row.get('Student#_grades')
+                student_id_source = 'Student#_grades'
             elif 'Student#_attendance' in row.index and pd.notna(row.get('Student#_attendance')):
                 student_id_val = row.get('Student#_attendance')
+                student_id_source = 'Student#_attendance'
             else:
                 # Try alternative column names
                 for col in ['Student ID', 'Student Number', 'student_id']:
                     if col in row.index and pd.notna(row.get(col)):
                         student_id_val = row.get(col)
+                        student_id_source = col
                         break
             
             if student_id_val is None or pd.isna(student_id_val):
                 student_id = 'Unknown'
+                if row_idx < 5:
+                    print(f"  WARNING: No Student ID found in row {row_idx}")
             else:
                 # Convert to string and strip - this is the numeric ID
-                # Ensure it's not the DataFrame index (which would be a small number like 0, 1, 2...)
                 student_id_str = str(student_id_val).strip()
-                # If it's a small number (< 1000), it might be the index, not the actual ID
-                # Real Student IDs are typically 6-7 digits (e.g., 5686877)
+                # Validate: Real Student IDs are typically 6-7 digits (e.g., 5686877, 609571)
+                # If it's a small number (< 1000), it might be the index or wrong column
                 try:
                     student_id_num = int(float(student_id_str))
                     if student_id_num < 1000:
-                        print(f"WARNING: Row {row_idx} - Student ID '{student_id_str}' is suspiciously small (< 1000). This might be the DataFrame index, not the actual Student ID.")
+                        print(f"WARNING: Row {row_idx} - Student ID '{student_id_str}' from '{student_id_source}' is suspiciously small (< 1000). This might be wrong column.")
                         # Try to find the actual Student ID in other columns
                         for col in row.index:
-                            if 'student' in col.lower() and 'id' in col.lower() and col != 'Student#':
+                            if 'student' in col.lower() and ('#' in col or 'id' in col.lower() or 'number' in col.lower()):
+                                if col == student_id_source:  # Skip the one we already tried
+                                    continue
                                 alt_val = row.get(col)
                                 if pd.notna(alt_val):
                                     alt_str = str(alt_val).strip()
                                     try:
                                         alt_num = int(float(alt_str))
                                         if alt_num >= 1000:  # More likely to be a real ID
-                                            print(f"  Found alternative Student ID in '{col}': {alt_str}")
+                                            print(f"  Found alternative Student ID in '{col}': {alt_str} (using this instead)")
                                             student_id_str = alt_str
+                                            student_id_source = col
                                             break
                                     except (ValueError, TypeError):
                                         pass
+                    else:
+                        # Valid Student ID (>= 1000)
+                        if row_idx < 5:
+                            print(f"  Using Student ID from '{student_id_source}': {student_id_str}")
                 except (ValueError, TypeError):
-                    pass
+                    # Not a number, but might still be valid
+                    if row_idx < 5:
+                        print(f"  Student ID '{student_id_str}' is not numeric, but using it anyway")
                 student_id = student_id_str
             
             # Extract Student Name - handle merge suffixes (_grades, _attendance)
             # Priority: Student Name_grades > Student Name_attendance > Student Name
             student_name_val = None
+            student_name_source = None
+            
             if 'Student Name_grades' in row.index and pd.notna(row.get('Student Name_grades')):
                 student_name_val = row.get('Student Name_grades')
+                student_name_source = 'Student Name_grades'
             elif 'Student Name_attendance' in row.index and pd.notna(row.get('Student Name_attendance')):
                 student_name_val = row.get('Student Name_attendance')
+                student_name_source = 'Student Name_attendance'
             elif 'Student Name' in row.index and pd.notna(row.get('Student Name')):
                 student_name_val = row.get('Student Name')
+                student_name_source = 'Student Name'
             else:
                 # Try alternative column names
                 for col in ['Name', 'student_name', 'Full Name']:
                     if col in row.index and pd.notna(row.get(col)):
                         student_name_val = row.get(col)
+                        student_name_source = col
                         break
             
             if student_name_val is None or pd.isna(student_name_val) or str(student_name_val).strip().lower() in ['nan', 'none', '']:
                 student_name = 'Unknown'
+                if row_idx < 5:
+                    print(f"  WARNING: No Student Name found in row {row_idx}")
             else:
                 student_name = str(student_name_val).strip()
             
-            # Final safety check: if Student Name looks like a number and matches Student ID, it's misaligned
+            # Final safety check: if Student Name looks like a number (ID), it's misaligned
             try:
-                # If student_name is all digits and matches student_id, it's likely the ID, not the name
-                if student_name.isdigit() and student_name == student_id:
-                    print(f"WARNING: Row {row_idx} - Student Name appears to be the ID. Setting name to 'Unknown'")
-                    student_name = 'Unknown'
-            except (AttributeError, ValueError):
+                # If student_name is all digits (looks like an ID), it's likely misaligned
+                if student_name.isdigit():
+                    student_id_num = int(float(student_name))
+                    if student_id_num >= 1000:  # Looks like a Student ID (6-7 digits)
+                        print(f"WARNING: Row {row_idx} - Student Name '{student_name}' from '{student_name_source}' appears to be a Student ID (numeric >= 1000). This indicates column misalignment!")
+                        # Try to find actual name in other columns
+                        for col in row.index:
+                            if 'name' in col.lower() and 'student' in col.lower() and col != student_name_source:
+                                alt_val = row.get(col)
+                                if pd.notna(alt_val):
+                                    alt_str = str(alt_val).strip()
+                                    # If it's not all digits, it might be the actual name
+                                    if not alt_str.isdigit():
+                                        print(f"  Found alternative Student Name in '{col}': {alt_str} (using this instead)")
+                                        student_name = alt_str
+                                        break
+                        # If we couldn't find a better name, set to Unknown
+                        if student_name.isdigit() and int(float(student_name)) >= 1000:
+                            print(f"  Could not find actual name, setting to 'Unknown'")
+                            student_name = 'Unknown'
+            except (AttributeError, ValueError, TypeError):
                 pass
             
             if row_idx < 5:  # Debug first 5 rows
