@@ -438,26 +438,10 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
     else:
         attendance_normalized['missed_pct'] = 0.0
     
-    # Replace NaN, Infinity, and empty values with 0
-    attendance_normalized = attendance_normalized.replace([np.inf, -np.inf, np.nan], 0)
-    
-    # Normalize % Missed (find column case-insensitively)
-    missed_pct_col = None
-    for col in attendance_normalized.columns:
-        if '% missed' in col.lower().strip() or '%missed' in col.lower().strip():
-            missed_pct_col = col
-            break
-    
-    if missed_pct_col:
-        max_missed = attendance_normalized[missed_pct_col].max()
-        if pd.notna(max_missed):
-            attendance_normalized['missed_pct'] = attendance_normalized[missed_pct_col].apply(
-                lambda x: normalize_percentage(x, max_missed)
-            )
-        else:
-            attendance_normalized['missed_pct'] = 0.0
-    else:
-        attendance_normalized['missed_pct'] = 0.0
+    # Ensure all numeric columns are clean (no NaN, Infinity)
+    numeric_cols = attendance_normalized.select_dtypes(include=[np.number]).columns
+    for col in numeric_cols:
+        attendance_normalized[col] = attendance_normalized[col].replace([np.inf, -np.inf, np.nan], 0.0)
     
     return grades_normalized, attendance_normalized
 
