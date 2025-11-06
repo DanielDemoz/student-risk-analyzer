@@ -320,6 +320,7 @@ async def upload_file(
             
             # Extract Student# - handle merge suffixes (_grades, _attendance)
             # Priority: Student# (merge key) > Student#_grades > Student#_attendance
+            # IMPORTANT: Do NOT use DataFrame index - it's just a row number, not the Student ID
             student_id_val = None
             if 'Student#' in row.index and pd.notna(row.get('Student#')):
                 student_id_val = row.get('Student#')
@@ -338,7 +339,31 @@ async def upload_file(
                 student_id = 'Unknown'
             else:
                 # Convert to string and strip - this is the numeric ID
-                student_id = str(student_id_val).strip()
+                # Ensure it's not the DataFrame index (which would be a small number like 0, 1, 2...)
+                student_id_str = str(student_id_val).strip()
+                # If it's a small number (< 1000), it might be the index, not the actual ID
+                # Real Student IDs are typically 6-7 digits (e.g., 5686877)
+                try:
+                    student_id_num = int(float(student_id_str))
+                    if student_id_num < 1000:
+                        print(f"WARNING: Row {row_idx} - Student ID '{student_id_str}' is suspiciously small (< 1000). This might be the DataFrame index, not the actual Student ID.")
+                        # Try to find the actual Student ID in other columns
+                        for col in row.index:
+                            if 'student' in col.lower() and 'id' in col.lower() and col != 'Student#':
+                                alt_val = row.get(col)
+                                if pd.notna(alt_val):
+                                    alt_str = str(alt_val).strip()
+                                    try:
+                                        alt_num = int(float(alt_str))
+                                        if alt_num >= 1000:  # More likely to be a real ID
+                                            print(f"  Found alternative Student ID in '{col}': {alt_str}")
+                                            student_id_str = alt_str
+                                            break
+                                    except (ValueError, TypeError):
+                                        pass
+                except (ValueError, TypeError):
+                    pass
+                student_id = student_id_str
             
             # Extract Student Name - handle merge suffixes (_grades, _attendance)
             # Priority: Student Name_grades > Student Name_attendance > Student Name
