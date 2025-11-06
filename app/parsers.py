@@ -1,6 +1,7 @@
 """Excel file parsing and data normalization."""
 
 import pandas as pd
+import numpy as np
 import re
 from typing import Tuple, Dict, Optional
 from io import BytesIO
