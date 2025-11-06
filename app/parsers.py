@@ -661,13 +661,48 @@ def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str,
     initial_grades = len(grades_df)
     initial_attendance = len(attendance_df)
     
-    if 'Student#' in grades_df.columns and 'Student Name' in grades_df.columns:
-        grades_df = grades_df.dropna(subset=["Student#", "Student Name"])
-        print(f"Grades: Dropped {initial_grades - len(grades_df)} rows with missing Student# or Student Name")
+    # Ensure Student Name exists in both DataFrames before dropping
+    if 'Student Name' not in grades_df.columns:
+        print("ERROR: 'Student Name' column missing in grades_df after normalization!")
+        print(f"Available columns in grades_df: {list(grades_df.columns)}")
+        # Try to create it
+        if len(grades_df) > 0:
+            grades_df['Student Name'] = 'Unknown'
+            print("WARNING: Created placeholder 'Student Name' column in grades_df")
+        else:
+            raise ValueError(f"'Student Name' column missing in grades DataFrame. Available columns: {list(grades_df.columns)}")
     
-    if 'Student#' in attendance_df.columns and 'Student Name' in attendance_df.columns:
-        attendance_df = attendance_df.dropna(subset=["Student#", "Student Name"])
-        print(f"Attendance: Dropped {initial_attendance - len(attendance_df)} rows with missing Student# or Student Name")
+    if 'Student Name' not in attendance_df.columns:
+        print("ERROR: 'Student Name' column missing in attendance_df after normalization!")
+        print(f"Available columns in attendance_df: {list(attendance_df.columns)}")
+        # Try to create it
+        if len(attendance_df) > 0:
+            attendance_df['Student Name'] = 'Unknown'
+            print("WARNING: Created placeholder 'Student Name' column in attendance_df")
+        else:
+            raise ValueError(f"'Student Name' column missing in attendance DataFrame. Available columns: {list(attendance_df.columns)}")
+    
+    # Now safely drop rows with missing values
+    drop_cols_grades = []
+    drop_cols_attendance = []
+    
+    if 'Student#' in grades_df.columns:
+        drop_cols_grades.append('Student#')
+    if 'Student Name' in grades_df.columns:
+        drop_cols_grades.append('Student Name')
+    
+    if 'Student#' in attendance_df.columns:
+        drop_cols_attendance.append('Student#')
+    if 'Student Name' in attendance_df.columns:
+        drop_cols_attendance.append('Student Name')
+    
+    if drop_cols_grades:
+        grades_df = grades_df.dropna(subset=drop_cols_grades)
+        print(f"Grades: Dropped {initial_grades - len(grades_df)} rows with missing {drop_cols_grades}")
+    
+    if drop_cols_attendance:
+        attendance_df = attendance_df.dropna(subset=drop_cols_attendance)
+        print(f"Attendance: Dropped {initial_attendance - len(attendance_df)} rows with missing {drop_cols_attendance}")
     
     # Ensure both DataFrames use the same data type for Student#
     if 'Student#' in grades_df.columns and 'Student#' in attendance_df.columns:
@@ -981,33 +1016,42 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
             raise ValueError(f"Student Name column missing in attendance DataFrame. Available columns: {list(attendance_df.columns)}")
     
     # Clean Student Name for consistent matching
+    # First ensure Student Name exists in both DataFrames
+    if 'Student Name' not in grades_df.columns:
+        print(f"ERROR: 'Student Name' not found in grades_df before merge. Available columns: {list(grades_df.columns)}")
+        if len(grades_df) > 0:
+            grades_df['Student Name'] = 'Unknown'
+            print("WARNING: Created placeholder 'Student Name' column in grades_df")
+        else:
+            raise ValueError(f"'Student Name' column missing in grades DataFrame. Available columns: {list(grades_df.columns)}")
+    
+    if 'Student Name' not in attendance_df.columns:
+        print(f"ERROR: 'Student Name' not found in attendance_df before merge. Available columns: {list(attendance_df.columns)}")
+        if len(attendance_df) > 0:
+            attendance_df['Student Name'] = 'Unknown'
+            print("WARNING: Created placeholder 'Student Name' column in attendance_df")
+        else:
+            raise ValueError(f"'Student Name' column missing in attendance DataFrame. Available columns: {list(attendance_df.columns)}")
+    
     try:
         # Ensure we're working with a Series, not a DataFrame
-        if 'Student Name' in grades_df.columns:
-            student_name_series = grades_df['Student Name']
-            if isinstance(student_name_series, pd.Series):
-                grades_df['Student Name'] = student_name_series.astype(str).str.strip()
-            else:
-                # If it's somehow not a Series, convert it
-                grades_df['Student Name'] = pd.Series(student_name_series, index=grades_df.index).astype(str).str.strip()
+        student_name_series = safe_get_series(grades_df, 'Student Name')
+        grades_df['Student Name'] = student_name_series.astype(str).str.strip()
         
-        if 'Student Name' in attendance_df.columns:
-            student_name_series = attendance_df['Student Name']
-            if isinstance(student_name_series, pd.Series):
-                attendance_df['Student Name'] = student_name_series.astype(str).str.strip()
-            else:
-                # If it's somehow not a Series, convert it
-                attendance_df['Student Name'] = pd.Series(student_name_series, index=attendance_df.index).astype(str).str.strip()
+        student_name_series = safe_get_series(attendance_df, 'Student Name')
+        attendance_df['Student Name'] = student_name_series.astype(str).str.strip()
     except Exception as e:
         print(f"ERROR: Failed to clean Student Name columns: {e}")
-        print(f"grades_df['Student Name'] type: {type(grades_df.get('Student Name'))}")
-        print(f"attendance_df['Student Name'] type: {type(attendance_df.get('Student Name'))}")
+        print(f"grades_df columns: {list(grades_df.columns)}")
+        print(f"attendance_df columns: {list(attendance_df.columns)}")
         # Try fallback: use apply instead of .str
         try:
             if 'Student Name' in grades_df.columns:
-                grades_df['Student Name'] = grades_df['Student Name'].apply(lambda x: str(x).strip() if pd.notna(x) else 'Unknown')
+                student_name_series = safe_get_series(grades_df, 'Student Name')
+                grades_df['Student Name'] = student_name_series.apply(lambda x: str(x).strip() if pd.notna(x) else 'Unknown')
             if 'Student Name' in attendance_df.columns:
-                attendance_df['Student Name'] = attendance_df['Student Name'].apply(lambda x: str(x).strip() if pd.notna(x) else 'Unknown')
+                student_name_series = safe_get_series(attendance_df, 'Student Name')
+                attendance_df['Student Name'] = student_name_series.apply(lambda x: str(x).strip() if pd.notna(x) else 'Unknown')
             print("SUCCESS: Used fallback method to clean Student Name columns")
         except Exception as e2:
             raise ValueError(f"Failed to process Student Name column: {e}. Fallback also failed: {e2}")
