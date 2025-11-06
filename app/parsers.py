@@ -550,8 +550,26 @@ def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str,
     print(f"DEBUG: Normalized attendance columns: {list(attendance_df.columns)}")
     
     # Also strip whitespace from column names (additional cleanup)
-    grades_df.columns = grades_df.columns.str.strip()
-    attendance_df.columns = attendance_df.columns.str.strip()
+    # Ensure columns is an Index before using .str
+    try:
+        if hasattr(grades_df.columns, 'str'):
+            grades_df.columns = grades_df.columns.str.strip()
+        else:
+            # Fallback: manually strip column names
+            grades_df.columns = [str(col).strip() for col in grades_df.columns]
+    except Exception as e:
+        print(f"WARNING: Could not strip grades_df column names: {e}")
+        grades_df.columns = [str(col).strip() for col in grades_df.columns]
+    
+    try:
+        if hasattr(attendance_df.columns, 'str'):
+            attendance_df.columns = attendance_df.columns.str.strip()
+        else:
+            # Fallback: manually strip column names
+            attendance_df.columns = [str(col).strip() for col in attendance_df.columns]
+    except Exception as e:
+        print(f"WARNING: Could not strip attendance_df column names: {e}")
+        attendance_df.columns = [str(col).strip() for col in attendance_df.columns]
     
     # Debug: Print raw attendance DataFrame info
     print(f"\n=== DEBUG: Raw attendance DataFrame after pd.read_excel ===")
