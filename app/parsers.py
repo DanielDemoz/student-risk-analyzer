@@ -914,13 +914,35 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     
     # Clean Student Name for consistent matching
     try:
-        grades_df['Student Name'] = grades_df['Student Name'].astype(str).str.strip()
-        attendance_df['Student Name'] = attendance_df['Student Name'].astype(str).str.strip()
+        # Ensure we're working with a Series, not a DataFrame
+        if 'Student Name' in grades_df.columns:
+            student_name_series = grades_df['Student Name']
+            if isinstance(student_name_series, pd.Series):
+                grades_df['Student Name'] = student_name_series.astype(str).str.strip()
+            else:
+                # If it's somehow not a Series, convert it
+                grades_df['Student Name'] = pd.Series(student_name_series, index=grades_df.index).astype(str).str.strip()
+        
+        if 'Student Name' in attendance_df.columns:
+            student_name_series = attendance_df['Student Name']
+            if isinstance(student_name_series, pd.Series):
+                attendance_df['Student Name'] = student_name_series.astype(str).str.strip()
+            else:
+                # If it's somehow not a Series, convert it
+                attendance_df['Student Name'] = pd.Series(student_name_series, index=attendance_df.index).astype(str).str.strip()
     except Exception as e:
         print(f"ERROR: Failed to clean Student Name columns: {e}")
         print(f"grades_df['Student Name'] type: {type(grades_df.get('Student Name'))}")
         print(f"attendance_df['Student Name'] type: {type(attendance_df.get('Student Name'))}")
-        raise ValueError(f"Failed to process Student Name column: {e}")
+        # Try fallback: use apply instead of .str
+        try:
+            if 'Student Name' in grades_df.columns:
+                grades_df['Student Name'] = grades_df['Student Name'].apply(lambda x: str(x).strip() if pd.notna(x) else 'Unknown')
+            if 'Student Name' in attendance_df.columns:
+                attendance_df['Student Name'] = attendance_df['Student Name'].apply(lambda x: str(x).strip() if pd.notna(x) else 'Unknown')
+            print("SUCCESS: Used fallback method to clean Student Name columns")
+        except Exception as e2:
+            raise ValueError(f"Failed to process Student Name column: {e}. Fallback also failed: {e2}")
     
     # Try merging by Student# first (if both have it)
     merged = None
