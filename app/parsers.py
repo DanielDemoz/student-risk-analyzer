@@ -649,12 +649,27 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
         attendance_normalized['Campus Login URL'] = None
 
     # PREPROCESSING STEP: Automatically clean and normalize attendance data
-    # This converts HH:MM strings to decimal hours, normalizes percentages, and replaces invalid values
+    # Note: clean_attendance_df was already called in load_excel, but we may need to re-normalize
+    # if the data was modified. Check if columns still need conversion.
     print(f"\n=== DEBUG: Before normalize_attendance_data ===")
     print(f"Columns in attendance_normalized: {list(attendance_normalized.columns)}")
     if 'Attended % to Date.' in attendance_normalized.columns:
         print(f"Sample 'Attended % to Date.' values: {attendance_normalized['Attended % to Date.'].head(3).tolist()}")
-    attendance_normalized = normalize_attendance_data(attendance_normalized)
+    
+    # Only normalize if columns haven't been normalized yet (check if values are still 0-1 range)
+    needs_normalization = False
+    if 'Attended % to Date.' in attendance_normalized.columns:
+        sample_values = attendance_normalized['Attended % to Date.'].dropna()
+        if len(sample_values) > 0:
+            max_val = sample_values.max()
+            if max_val <= 1.0 and max_val > 0:
+                needs_normalization = True
+                print(f"DEBUG: Values still in 0-1 range (max: {max_val}), will normalize")
+    
+    if needs_normalization:
+        attendance_normalized = normalize_attendance_data(attendance_normalized)
+    else:
+        print("DEBUG: Attendance data already normalized, skipping normalize_attendance_data")
     
     # Extract attendance_pct from normalized "Attended % to Date." column
     if 'Attended % to Date.' in attendance_normalized.columns:
