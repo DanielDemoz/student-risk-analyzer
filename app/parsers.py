@@ -591,20 +591,32 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
             grades_normalized['Student#'] = grades_normalized[student_id_col].astype(str).str.strip()
     
     # Normalize grade percentage (find column case-insensitively)
-    # "current overall Program Grade" is between 0-1, needs ×100
+    # Try multiple possible column names: "current overall Program Grade", "Program Grade", etc.
     grade_col = None
-    for col in grades_normalized.columns:
-        if 'current overall program grade' in col.lower().strip():
-            grade_col = col
+    possible_grade_cols = [
+        'current overall program grade',
+        'program grade',
+        'grade',
+        'overall grade',
+        'final grade'
+    ]
+    
+    for possible_name in possible_grade_cols:
+        for col in grades_normalized.columns:
+            if possible_name in col.lower().strip():
+                grade_col = col
+                break
+        if grade_col:
             break
     
     if grade_col:
-        # Apply normalize_pct to convert 0-1 to 0-100
+        # Apply normalize_pct to convert 0-1 to 0-100, or handle percentage strings
         print(f"DEBUG: Normalizing grade column '{grade_col}' - Sample values before: {grades_normalized[grade_col].head(3).tolist()}")
+        # Handle percentage strings (e.g., "88%") and normalize
         grades_normalized['grade_pct'] = grades_normalized[grade_col].apply(normalize_pct)
         print(f"DEBUG: After normalization - Sample values: {grades_normalized['grade_pct'].head(3).tolist()}")
     else:
-        print("WARNING: 'current overall Program Grade' column not found")
+        print(f"WARNING: Grade column not found. Available columns: {list(grades_normalized.columns)}")
         grades_normalized['grade_pct'] = 0.0
     
     # Normalize Attendance sheet
@@ -731,44 +743,91 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
 
 def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Merge grades and attendance data on Student#.
+    Merge grades and attendance data.
+    First tries merging by Student#, then falls back to Student Name if Student# is inconsistent.
     Uses outer join to include ALL students from both sheets.
     """
-    # Ensure Student# exists and is numeric in both DataFrames
-    if 'Student#' not in grades_df.columns or 'Student#' not in attendance_df.columns:
-        raise ValueError("Student# column missing in one or both DataFrames")
+    # Ensure Student Name exists in both DataFrames (required for fallback merge)
+    if 'Student Name' not in grades_df.columns or 'Student Name' not in attendance_df.columns:
+        raise ValueError("Student Name column missing in one or both DataFrames")
     
-    # Convert Student# to numeric (int) for consistent matching
-    try:
-        grades_df['Student#'] = pd.to_numeric(grades_df['Student#'], errors='coerce').fillna(0).astype(int)
-        attendance_df['Student#'] = pd.to_numeric(attendance_df['Student#'], errors='coerce').fillna(0).astype(int)
-    except (ValueError, TypeError):
-        # Fallback to string if conversion fails
-        grades_df['Student#'] = grades_df['Student#'].astype(str).str.strip()
-        attendance_df['Student#'] = attendance_df['Student#'].astype(str).str.strip()
+    # Clean Student Name for consistent matching
+    grades_df['Student Name'] = grades_df['Student Name'].astype(str).str.strip()
+    attendance_df['Student Name'] = attendance_df['Student Name'].astype(str).str.strip()
     
-    # Remove rows with invalid Student# (0 or NaN)
-    grades_df = grades_df[grades_df['Student#'] != 0].copy()
-    attendance_df = attendance_df[attendance_df['Student#'] != 0].copy()
+    # Try merging by Student# first (if both have it)
+    merged = None
+    merge_method = None
     
-    print(f"Merging: grades_df={len(grades_df)} rows, attendance_df={len(attendance_df)} rows")
-    print(f"DEBUG: grades_df Student# sample: {grades_df['Student#'].head(5).tolist()}")
-    print(f"DEBUG: attendance_df Student# sample: {attendance_df['Student#'].head(5).tolist()}")
-    print(f"DEBUG: grades_df columns: {list(grades_df.columns)}")
-    print(f"DEBUG: attendance_df columns: {list(attendance_df.columns)}")
+    if 'Student#' in grades_df.columns and 'Student#' in attendance_df.columns:
+        # Convert Student# to string for consistent matching (handles inconsistent formats)
+        grades_df['Student#'] = grades_df['Student#'].astype(str).str.strip().str.replace('.0', '', regex=False)
+        attendance_df['Student#'] = attendance_df['Student#'].astype(str).str.strip().str.replace('.0', '', regex=False)
+        
+        # Remove rows with invalid Student# (empty or "nan")
+        grades_df_clean = grades_df[~grades_df['Student#'].isin(['', 'nan', 'None', '0'])].copy()
+        attendance_df_clean = attendance_df[~attendance_df['Student#'].isin(['', 'nan', 'None', '0'])].copy()
+        
+        print(f"Merging: grades_df={len(grades_df_clean)} rows, attendance_df={len(attendance_df_clean)} rows")
+        print(f"DEBUG: grades_df Student# sample: {grades_df_clean['Student#'].head(5).tolist()}")
+        print(f"DEBUG: attendance_df Student# sample: {attendance_df_clean['Student#'].head(5).tolist()}")
+        
+        # Try merge by Student#
+        merged_by_id = pd.merge(
+            grades_df_clean,
+            attendance_df_clean,
+            on='Student#',
+            how='outer',
+            suffixes=('_grades', '_attendance'),
+            indicator=True
+        )
+        
+        # Check how many matches we got
+        match_stats = merged_by_id['_merge'].value_counts()
+        print(f"DEBUG: Merge by Student# results: {match_stats.to_dict()}")
+        
+        # If we have reasonable matches, use Student# merge
+        if len(merged_by_id) > 0 and match_stats.get('both', 0) > 0:
+            merged = merged_by_id.drop(columns=['_merge'])
+            merge_method = 'Student#'
+            print(f"Using merge by Student#: {len(merged)} rows")
+        else:
+            print("WARNING: Student# merge resulted in few/no matches, trying Student Name merge")
     
-    # Merge using outer join to include ALL students
-    merged = pd.merge(
-        grades_df,
-        attendance_df,
-        on='Student#',
-        how='outer',  # Include all students from both sheets
-        suffixes=('_grades', '_attendance')
-    )
+    # Fallback to Student Name merge (or use it if Student# doesn't exist)
+    if merged is None:
+        print(f"Merging by Student Name: grades_df={len(grades_df)} rows, attendance_df={len(attendance_df)} rows")
+        print(f"DEBUG: grades_df Student Name sample: {grades_df['Student Name'].head(5).tolist()}")
+        print(f"DEBUG: attendance_df Student Name sample: {attendance_df['Student Name'].head(5).tolist()}")
+        
+        merged = pd.merge(
+            grades_df,
+            attendance_df,
+            on='Student Name',
+            how='outer',  # Include all students from both sheets
+            suffixes=('_grades', '_attendance'),
+            indicator=True
+        )
+        merge_method = 'Student Name'
+        print(f"Using merge by Student Name: {len(merged)} rows")
+        print(f"DEBUG: Merge by Student Name results: {merged['_merge'].value_counts().to_dict()}")
+        merged = merged.drop(columns=['_merge'])
     
-    print(f"After merge: {len(merged)} rows, {merged['Student#'].nunique()} unique students")
+    # Ensure Student# column exists (create from either side if needed)
+    if 'Student#' not in merged.columns:
+        if 'Student#_grades' in merged.columns:
+            merged['Student#'] = merged['Student#_grades'].fillna(merged.get('Student#_attendance', pd.Series([None] * len(merged))))
+            merged = merged.drop(columns=['Student#_grades', 'Student#_attendance'], errors='ignore')
+        elif 'Student#_attendance' in merged.columns:
+            merged['Student#'] = merged['Student#_attendance']
+            merged = merged.drop(columns=['Student#_attendance'], errors='ignore')
+        else:
+            # Generate sequential IDs if neither exists
+            merged['Student#'] = range(1, len(merged) + 1)
+    
+    print(f"After merge ({merge_method}): {len(merged)} rows, {merged['Student Name'].nunique()} unique students")
     print(f"DEBUG: merged columns: {list(merged.columns)}")
-    print(f"DEBUG: merged Student# sample: {merged['Student#'].head(10).tolist()}")
+    print(f"DEBUG: merged Student Name sample: {merged['Student Name'].head(10).tolist()}")
     
     # Handle Student Name - prefer grades, fallback to attendance
     if 'Student Name_grades' in merged.columns and 'Student Name_attendance' in merged.columns:
