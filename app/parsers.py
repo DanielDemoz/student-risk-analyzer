@@ -119,15 +119,46 @@ def normalize_and_rename_columns(df: pd.DataFrame, sheet_type: str) -> pd.DataFr
     return df
 
 
+def safe_get_series(df: pd.DataFrame, column_name: str) -> pd.Series:
+    """
+    Safely extract a Series from a DataFrame, ensuring it's a Series not a DataFrame.
+    
+    Args:
+        df: DataFrame to extract from
+        column_name: Name of the column
+    
+    Returns:
+        Series object
+    """
+    if column_name not in df.columns:
+        raise KeyError(f"Column '{column_name}' not found in DataFrame")
+    
+    col_data = df[column_name]
+    
+    # If it's already a Series, return it
+    if isinstance(col_data, pd.Series):
+        return col_data
+    
+    # If it's a DataFrame (shouldn't happen, but handle it), extract first column
+    if isinstance(col_data, pd.DataFrame):
+        print(f"WARNING: Column '{column_name}' returned DataFrame instead of Series, using first column")
+        return col_data.iloc[:, 0]
+    
+    # Otherwise, try to convert to Series
+    return pd.Series(col_data, index=df.index)
+
+
 def clean_student_id(df: pd.DataFrame) -> pd.DataFrame:
     """
     Standardize Student# column so merge keys match.
     Extracts digits only and converts to numeric.
     """
     if "Student#" in df.columns:
+        # Safely get the Series
+        student_id_series = safe_get_series(df, "Student#")
         # Convert to string first, then extract digits only
         df["Student#"] = (
-            df["Student#"]
+            student_id_series
             .astype(str)
             .str.extract(r"(\d+)", expand=False)  # Extract digits only
         )
@@ -145,11 +176,12 @@ def clean_attendance_df(df: pd.DataFrame) -> pd.DataFrame:
     # Remove total/summary rows
     if "Student Name" in df.columns:
         # Remove rows where Student Name contains "Total", "Summary", or is empty
+        student_name_series = safe_get_series(df, "Student Name")
         mask = (
-            ~df["Student Name"].astype(str).str.contains("Total", case=False, na=False) &
-            ~df["Student Name"].astype(str).str.contains("Summary", case=False, na=False) &
-            ~df["Student Name"].astype(str).str.strip().eq("") &
-            df["Student Name"].notna()
+            ~student_name_series.astype(str).str.contains("Total", case=False, na=False) &
+            ~student_name_series.astype(str).str.contains("Summary", case=False, na=False) &
+            ~student_name_series.astype(str).str.strip().eq("") &
+            student_name_series.notna()
         )
         df = df[mask].copy()
         print(f"DEBUG: Removed summary rows, remaining rows: {len(df)}")
@@ -629,9 +661,11 @@ def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str,
     if 'Student#' in attendance_df.columns:
         # Convert to numeric, then to string for mapping
         try:
-            student_ids = pd.to_numeric(attendance_df['Student#'], errors='coerce').fillna(0).astype(int).astype(str)
+            student_id_series = safe_get_series(attendance_df, 'Student#')
+            student_ids = pd.to_numeric(student_id_series, errors='coerce').fillna(0).astype(int).astype(str)
         except (ValueError, TypeError):
-            student_ids = attendance_df['Student#'].astype(str).str.strip()
+            student_id_series = safe_get_series(attendance_df, 'Student#')
+            student_ids = student_id_series.astype(str).str.strip()
         attendance_df['Campus Login URL'] = student_ids.map(
             lambda x: attendance_hyperlinks.get(x, None)
         )
@@ -644,9 +678,11 @@ def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str,
                 break
         if student_id_col:
             try:
-                student_ids = pd.to_numeric(attendance_df[student_id_col], errors='coerce').fillna(0).astype(int).astype(str)
+                student_id_series = safe_get_series(attendance_df, student_id_col)
+                student_ids = pd.to_numeric(student_id_series, errors='coerce').fillna(0).astype(int).astype(str)
             except (ValueError, TypeError):
-                student_ids = attendance_df[student_id_col].astype(str).str.strip()
+                student_id_series = safe_get_series(attendance_df, student_id_col)
+                student_ids = student_id_series.astype(str).str.strip()
             attendance_df['Campus Login URL'] = student_ids.map(
                 lambda x: attendance_hyperlinks.get(x, None)
             )
@@ -723,15 +759,18 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
             # Replace NaN with 0, but keep track of which ones failed
             grades_normalized['Student#'] = student_ids.fillna(0).astype(int)
             # If we got all zeros, the conversion probably failed - use string instead
-            if (grades_normalized['Student#'] == 0).all():
+            student_id_series = safe_get_series(grades_normalized, 'Student#')
+            if (student_id_series == 0).all():
                 print("WARNING: All Student# values converted to 0 in grades, using string format instead")
-                grades_normalized['Student#'] = grades_normalized[student_id_col].astype(str).str.strip()
+                source_series = safe_get_series(grades_normalized, student_id_col)
+                grades_normalized['Student#'] = source_series.astype(str).str.strip()
             else:
-                print(f"Successfully converted grades Student# to int, sample: {grades_normalized['Student#'].head(3).tolist()}")
+                print(f"Successfully converted grades Student# to int, sample: {student_id_series.head(3).tolist()}")
         except (ValueError, TypeError) as e:
             print(f"Warning: Could not convert grades Student# to numeric: {e}, using string format")
             # Fallback to string if conversion fails
-            grades_normalized['Student#'] = grades_normalized[student_id_col].astype(str).str.strip()
+            source_series = safe_get_series(grades_normalized, student_id_col)
+            grades_normalized['Student#'] = source_series.astype(str).str.strip()
     
     # Normalize grade percentage (find column case-insensitively)
     # Try multiple possible column names: "current overall Program Grade", "Program Grade", etc.
@@ -787,15 +826,18 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
             # Replace NaN with 0, but keep track of which ones failed
             attendance_normalized['Student#'] = student_ids.fillna(0).astype(int)
             # If we got all zeros, the conversion probably failed - use string instead
-            if (attendance_normalized['Student#'] == 0).all():
+            student_id_series = safe_get_series(attendance_normalized, 'Student#')
+            if (student_id_series == 0).all():
                 print("WARNING: All Student# values converted to 0 in attendance, using string format instead")
-                attendance_normalized['Student#'] = attendance_normalized[student_id_col].astype(str).str.strip()
+                source_series = safe_get_series(attendance_normalized, student_id_col)
+                attendance_normalized['Student#'] = source_series.astype(str).str.strip()
             else:
-                print(f"Successfully converted attendance Student# to int, sample: {attendance_normalized['Student#'].head(3).tolist()}")
+                print(f"Successfully converted attendance Student# to int, sample: {student_id_series.head(3).tolist()}")
         except (ValueError, TypeError) as e:
             print(f"Warning: Could not convert attendance Student# to numeric: {e}, using string format")
             # Fallback to string if conversion fails
-            attendance_normalized['Student#'] = attendance_normalized[student_id_col].astype(str).str.strip()
+            source_series = safe_get_series(attendance_normalized, student_id_col)
+            attendance_normalized['Student#'] = source_series.astype(str).str.strip()
 
     # Preserve Campus Login URL column
     if campus_login_url_col and campus_login_url_col != 'Campus Login URL':
@@ -950,8 +992,11 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     
     if 'Student#' in grades_df.columns and 'Student#' in attendance_df.columns:
         # Convert Student# to string for consistent matching (handles inconsistent formats)
-        grades_df['Student#'] = grades_df['Student#'].astype(str).str.strip().str.replace('.0', '', regex=False)
-        attendance_df['Student#'] = attendance_df['Student#'].astype(str).str.strip().str.replace('.0', '', regex=False)
+        grades_student_id = safe_get_series(grades_df, 'Student#')
+        grades_df['Student#'] = grades_student_id.astype(str).str.strip().str.replace('.0', '', regex=False)
+        
+        attendance_student_id = safe_get_series(attendance_df, 'Student#')
+        attendance_df['Student#'] = attendance_student_id.astype(str).str.strip().str.replace('.0', '', regex=False)
         
         # Remove rows with invalid Student# (empty or "nan")
         grades_df_clean = grades_df[~grades_df['Student#'].isin(['', 'nan', 'None', '0'])].copy()
