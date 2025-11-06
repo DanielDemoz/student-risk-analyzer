@@ -2,24 +2,59 @@
 
 let currentResults = [];
 
+// Get API endpoint from localStorage or use default
+function getApiEndpoint() {
+    const saved = localStorage.getItem('apiEndpoint');
+    if (saved) {
+        return saved;
+    }
+    // Default to localhost for local development, or detect if on GitHub Pages
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return 'http://localhost:8000';
+    }
+    // For GitHub Pages, you'll need to configure your API endpoint
+    return window.location.origin; // Fallback to same origin
+}
+
+// Save API endpoint
+function saveApiEndpoint() {
+    const endpoint = document.getElementById('apiEndpoint').value.trim();
+    if (endpoint) {
+        localStorage.setItem('apiEndpoint', endpoint);
+        showSuccess('API endpoint saved successfully!');
+    }
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', function() {
     const uploadForm = document.getElementById('uploadForm');
     const searchInput = document.getElementById('searchInput');
     const exportCsvBtn = document.getElementById('exportCsvBtn');
     const copyEmailBtn = document.getElementById('copyEmailBtn');
+    const apiEndpointInput = document.getElementById('apiEndpoint');
+
+    // Load saved API endpoint
+    if (apiEndpointInput) {
+        apiEndpointInput.value = getApiEndpoint();
+    }
 
     // Upload form handler
     uploadForm.addEventListener('submit', handleUpload);
 
     // Search handler
-    searchInput.addEventListener('input', handleSearch);
+    if (searchInput) {
+        searchInput.addEventListener('input', handleSearch);
+    }
 
     // Export CSV handler
-    exportCsvBtn.addEventListener('click', handleExportCsv);
+    if (exportCsvBtn) {
+        exportCsvBtn.addEventListener('click', handleExportCsv);
+    }
 
     // Copy email handler
-    copyEmailBtn.addEventListener('click', handleCopyEmail);
+    if (copyEmailBtn) {
+        copyEmailBtn.addEventListener('click', handleCopyEmail);
+    }
 });
 
 // Handle file upload
@@ -55,7 +90,10 @@ async function handleUpload(e) {
     }
 
     try {
-        const response = await fetch('/upload', {
+        const apiEndpoint = getApiEndpoint();
+        const uploadUrl = `${apiEndpoint}/upload`;
+        
+        const response = await fetch(uploadUrl, {
             method: 'POST',
             body: formData
         });
@@ -87,6 +125,8 @@ async function handleUpload(e) {
         // Handle JSON parsing errors
         if (error instanceof SyntaxError) {
             showError('Server returned invalid response. Please check the server logs.');
+        } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+            showError('Unable to connect to the server. Please check that the API endpoint is correct and the server is running. You can configure the API endpoint in the Advanced settings above.');
         } else {
             showError(error.message || 'An error occurred while processing the file');
         }
@@ -198,7 +238,10 @@ function openCampusLogin(url) {
 // Show email draft modal
 async function showEmailDraft(studentId, riskCategory, program, gradePct, attendancePct) {
     try {
-        const response = await fetch('/email-draft', {
+        const apiEndpoint = getApiEndpoint();
+        const emailDraftUrl = `${apiEndpoint}/email-draft`;
+        
+        const response = await fetch(emailDraftUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -277,7 +320,9 @@ function handleCopyEmail() {
 
 // Export CSV
 function handleExportCsv() {
-    window.location.href = '/download.csv';
+    const apiEndpoint = getApiEndpoint();
+    const csvUrl = `${apiEndpoint}/download.csv`;
+    window.location.href = csvUrl;
 }
 
 // Show error message
