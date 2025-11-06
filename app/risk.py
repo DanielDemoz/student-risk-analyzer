@@ -35,16 +35,19 @@ def simple_rule(grade_pct: float, attendance_pct: float) -> bool:
 
 def get_risk_category(risk_score: float, thresholds: Dict[str, float]) -> str:
     """
-    Categorize risk score into Low/Medium/High.
+    Categorize risk score into Low/Medium/High/Failed.
     
     Args:
         risk_score: Risk score (0-100)
-        thresholds: Dict with 'low', 'medium', 'high' threshold values
+        thresholds: Dict with 'low', 'medium', 'high', 'failed' threshold values
     
     Returns:
-        Risk category string
+        Risk category string (Low, Medium, High, or Failed)
     """
-    if risk_score >= thresholds.get('high', 80):
+    # Check thresholds in descending order
+    if risk_score >= thresholds.get('failed', 90):
+        return 'Failed'
+    elif risk_score >= thresholds.get('high', 80):
         return 'High'
     elif risk_score >= thresholds.get('medium', 60):
         return 'Medium'
@@ -155,17 +158,28 @@ def _fallback_heuristic_score(
     thresholds: Dict[str, float]
 ) -> Tuple[np.ndarray, List[str], Optional[object], Optional[object]]:
     """
-    Fallback heuristic risk scoring.
+    Fallback heuristic risk scoring using exponential weighting.
     
-    Uses weighted combination: risk = 0.6*(100-Grade%) + 0.4*(100-Att%)
+    Uses exponential weighting formula that penalizes very low grades or attendance more strongly:
+    - Normalize grades and attendance to 0-1
+    - Apply exponential weighting: performance_index = 0.6 * (g^1.2) + 0.4 * (a^1.2)
+    - Risk Score = 100 * (1 - performance_index)
     """
     grade_pct = df.get('grade_pct', pd.Series([0.0] * len(df))).fillna(0.0)
     attendance_pct = df.get('attendance_pct', pd.Series([0.0] * len(df))).fillna(0.0)
     
-    # Weighted risk score
-    risk_scores = 0.6 * (100.0 - grade_pct) + 0.4 * (100.0 - attendance_pct)
+    # Normalize to 0-1 (clamp values to valid range)
+    g = np.clip(grade_pct, 0.0, 100.0) / 100.0
+    a = np.clip(attendance_pct, 0.0, 100.0) / 100.0
     
-    # Clip to 0-100 range
+    # Exponential weighting — more penalty for lower scores
+    # Using power of 1.2 to create exponential curve
+    performance_index = 0.6 * (g ** 1.2) + 0.4 * (a ** 1.2)
+    
+    # Risk Score (higher = worse), rounded to 1 decimal place
+    risk_scores = np.round(100.0 * (1.0 - performance_index), 1)
+    
+    # Clip to 0-100 range (safety check)
     risk_scores = np.clip(risk_scores, 0.0, 100.0)
     
     # Optional: refine with IsolationForest for outliers

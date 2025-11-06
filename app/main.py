@@ -79,8 +79,8 @@ CAMPUS_LOGIN_BASE_URL = os.getenv(
     'https://compuslogin.example.com?student_id={student_id}'
 )
 
-# Parse risk thresholds
-thresholds_str = os.getenv('RISK_THRESHOLDS', 'low:0,medium:60,high:80')
+# Parse risk thresholds (including 'failed' category)
+thresholds_str = os.getenv('RISK_THRESHOLDS', 'low:0,medium:60,high:80,failed:90')
 RISK_THRESHOLDS = {}
 for item in thresholds_str.split(','):
     key, value = item.split(':')

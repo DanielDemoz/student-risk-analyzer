@@ -243,9 +243,17 @@ function createTableRow(result) {
     // Student ID
     const studentId = result.student_id || 'N/A';
     
-    // Risk category badge
-    const badgeClass = `badge-${result.risk_category.toLowerCase()}`;
-    const badge = `<span class="badge ${badgeClass}">${result.risk_category}</span>`;
+    // Risk category badge (handle Failed category)
+    let badgeClass = `badge-${result.risk_category.toLowerCase()}`;
+    // Map risk categories to Bootstrap badge classes
+    const categoryBadgeMap = {
+        'low': 'bg-success',
+        'medium': 'bg-warning',
+        'high': 'bg-danger',
+        'failed': 'bg-dark'
+    };
+    const bootstrapBadge = categoryBadgeMap[result.risk_category.toLowerCase()] || 'bg-secondary';
+    const badge = `<span class="badge ${bootstrapBadge}">${result.risk_category.toUpperCase()}</span>`;
 
     // Student name with link (for Campus Login - but we'll show name separately in table)
     const studentNameLink = `<a href="${result.campus_login_url}" target="_blank">${result.student_name || 'Unknown'}</a>`;
