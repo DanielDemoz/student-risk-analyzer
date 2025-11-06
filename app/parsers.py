@@ -495,6 +495,7 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
             grades_normalized['Student#'] = grades_normalized[student_id_col].astype(str).str.strip()
     
     # Normalize grade percentage (find column case-insensitively)
+    # "current overall Program Grade" is between 0-1, needs ×100
     grade_col = None
     for col in grades_normalized.columns:
         if 'current overall program grade' in col.lower().strip():
@@ -502,14 +503,12 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
             break
     
     if grade_col:
-        max_grade = grades_normalized[grade_col].max()
-        if pd.notna(max_grade):
-            grades_normalized['grade_pct'] = grades_normalized[grade_col].apply(
-                lambda x: normalize_percentage(x, max_grade)
-            )
-        else:
-            grades_normalized['grade_pct'] = 0.0
+        # Apply normalize_pct to convert 0-1 to 0-100
+        print(f"DEBUG: Normalizing grade column '{grade_col}' - Sample values before: {grades_normalized[grade_col].head(3).tolist()}")
+        grades_normalized['grade_pct'] = grades_normalized[grade_col].apply(normalize_pct)
+        print(f"DEBUG: After normalization - Sample values: {grades_normalized['grade_pct'].head(3).tolist()}")
     else:
+        print("WARNING: 'current overall Program Grade' column not found")
         grades_normalized['grade_pct'] = 0.0
     
     # Normalize Attendance sheet
