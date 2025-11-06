@@ -226,8 +226,16 @@ def get_explanation(
     # Try SHAP explanation
     if SHAP_AVAILABLE:
         try:
+            # Check bounds before accessing
+            if student_idx < 0 or student_idx >= len(df):
+                return None
+            
             X = df[feature_cols].fillna(0).values
             X_scaled = scaler.transform(X)
+            
+            # Check if X_scaled has enough rows
+            if student_idx >= len(X_scaled):
+                return None
             
             # Create SHAP explainer
             if hasattr(model, 'predict_proba'):
