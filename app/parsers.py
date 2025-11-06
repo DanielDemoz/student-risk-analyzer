@@ -130,6 +130,23 @@ def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str,
     """
     Load Excel file and extract data from both sheets.
     
+    Expected Excel structure:
+    - Sheet 1: "Students Grade"
+      - Student#: numeric (unique student ID)
+      - Student Name: string
+      - Program Name: string
+      - current overall Program Grade: float (0-1 decimal or 0-100 percent)
+    
+    - Sheet 2: "Students attendance " (note trailing space)
+      - Student#: numeric (same ID key as Grades sheet)
+      - Student Name: string (some have hyperlinks to Campus Login)
+      - Scheduled Hours to Date: string "HH:MM" (e.g., "90:00")
+      - Attended Hours to Date: string "HH:MM" (e.g., "89:45")
+      - Attended % to Date.: float 0-1 (e.g., 0.997222 = 99.7%)
+      - Missed Hours to Date: string "HH:MM" (e.g., "5:00")
+      - % Missed: float 0-1
+      - Missed Minus Excused to date: string "HH:MM" or number (e.g., "0:15" or 0)
+    
     Args:
         file_bytes: Raw bytes of the Excel file
     
