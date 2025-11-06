@@ -249,8 +249,26 @@ function displayResults(data) {
 function createTableRow(result) {
     const row = document.createElement('tr');
 
-    // Student ID
+    // Extract Student Name and Student ID - ensure correct alignment
+    // Student Name should be the actual name (string like "Abadi, Mahlet Chekole")
+    // Student ID should be the numeric ID (e.g., "5686877")
+    const studentName = result.student_name || 'Unknown';
     const studentId = result.student_id || 'N/A';
+    
+    // Safety check: if student_name looks like a number and matches student_id, it's misaligned
+    // In this case, we'll use 'Unknown' for name since the actual name might be missing
+    let displayName = studentName;
+    let displayId = studentId;
+    
+    if (studentName && typeof studentName === 'string' && studentName.trim().match(/^\d+$/)) {
+        // If student_name is all digits, it's likely the ID, not the name
+        if (studentName === studentId) {
+            displayName = 'Unknown';  // Name is missing, show Unknown
+        } else {
+            // If they don't match, student_name might actually be a name that happens to be numeric
+            displayName = studentName;
+        }
+    }
     
     // Risk category badge with color coding
     // Use risk_color from API if available, otherwise fallback to Bootstrap classes
@@ -258,25 +276,18 @@ function createTableRow(result) {
     const badgeStyle = `background-color: ${riskColor}; color: white; font-weight: 600;`;
     const badge = `<span class="badge" style="${badgeStyle}">${result.risk_category.toUpperCase()}</span>`;
 
-    // Student name with link (for Campus Login - but we'll show name separately in table)
-    const studentNameLink = `<a href="${result.campus_login_url}" target="_blank">${result.student_name || 'Unknown'}</a>`;
-
     // Explanation tooltip
     let explanationAttr = '';
     if (result.explanation) {
         explanationAttr = `data-bs-toggle="tooltip" data-bs-placement="top" title="${result.explanation}"`;
     }
-
-    // Risk Assessment combines score and category
-    const riskAssessment = `${result.risk_score.toFixed(1)} (${result.risk_category})`;
     
-    // Student name (not linked, just text)
-    const studentName = result.student_name || 'Unknown';
-    
+    // Build table row with correct column order:
+    // Student Name | Student ID | Program | Grade % | Attendance % | Risk Assessment | Actions
     row.innerHTML = `
-        <td>${studentName}</td>
-        <td>${studentId}</td>
-        <td>${result.program_name}</td>
+        <td>${displayName}</td>
+        <td>${displayId}</td>
+        <td>${result.program_name || 'Unknown'}</td>
         <td>${result.grade_pct.toFixed(1)}%</td>
         <td>${result.attendance_pct.toFixed(1)}%</td>
         <td ${explanationAttr}>

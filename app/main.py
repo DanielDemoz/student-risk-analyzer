@@ -296,32 +296,60 @@ async def upload_file(
         print(f"DEBUG: categories length: {len(categories)}")
         
         # Build results - use enumerate to get sequential index
+        # Ensure index is reset to avoid serial number in output
+        merged_df = merged_df.reset_index(drop=True)
+        
         results = []
         for row_idx, (_, row) in enumerate(merged_df.iterrows()):
             if row_idx < 5:  # Debug first 5 rows
-                print(f"DEBUG: Processing row {row_idx}, Student#: {row.get('Student#')}, Student Name: {row.get('Student Name', 'Unknown')}")
+                print(f"DEBUG: Processing row {row_idx}")
+                print(f"  Student#: {row.get('Student#')}")
+                print(f"  Student Name: {row.get('Student Name', 'Unknown')}")
+                print(f"  Available columns: {list(row.index)}")
+            
             # Extract Student# and Student Name - ensure correct alignment
             # Student# should be numeric ID, Student Name should be actual name
-            student_id_val = row.get('Student#', 'Unknown')
-            if pd.isna(student_id_val):
-                student_id = 'Unknown'
+            student_id_val = row.get('Student#', None)
+            if pd.isna(student_id_val) or student_id_val is None:
+                # Try alternative column names
+                for col in ['Student#', 'Student ID', 'Student Number', 'student_id']:
+                    if col in row.index and pd.notna(row.get(col)):
+                        student_id_val = row.get(col)
+                        break
+                if pd.isna(student_id_val) or student_id_val is None:
+                    student_id = 'Unknown'
+                else:
+                    student_id = str(student_id_val).strip()
             else:
                 # Convert to string and strip - this is the numeric ID
                 student_id = str(student_id_val).strip()
             
             # Handle Student Name - clean NaN values and ensure it's not the ID
-            student_name_val = row.get('Student Name', 'Unknown')
-            if pd.isna(student_name_val) or str(student_name_val).strip().lower() in ['nan', 'none', '']:
-                student_name = 'Unknown'
+            student_name_val = row.get('Student Name', None)
+            if pd.isna(student_name_val) or student_name_val is None or str(student_name_val).strip().lower() in ['nan', 'none', '']:
+                # Try alternative column names
+                for col in ['Student Name', 'Name', 'student_name', 'Full Name']:
+                    if col in row.index and pd.notna(row.get(col)):
+                        student_name_val = row.get(col)
+                        break
+                if pd.isna(student_name_val) or student_name_val is None or str(student_name_val).strip().lower() in ['nan', 'none', '']:
+                    student_name = 'Unknown'
+                else:
+                    student_name = str(student_name_val).strip()
             else:
                 student_name = str(student_name_val).strip()
-                # Safety check: if Student Name looks like a number and matches Student#, use 'Unknown'
-                try:
-                    # If student_name is numeric and matches student_id, it's likely misaligned
-                    if student_name.isdigit() and student_name == student_id:
-                        student_name = 'Unknown'
-                except (AttributeError, ValueError):
-                    pass
+            
+            # Final safety check: if Student Name looks like a number and matches Student ID, it's misaligned
+            try:
+                # If student_name is all digits and matches student_id, it's likely the ID, not the name
+                if student_name.isdigit() and student_name == student_id:
+                    print(f"WARNING: Row {row_idx} - Student Name appears to be the ID. Setting name to 'Unknown'")
+                    student_name = 'Unknown'
+            except (AttributeError, ValueError):
+                pass
+            
+            if row_idx < 5:  # Debug first 5 rows
+                print(f"  Final - Student ID: {student_id}, Student Name: {student_name}")
             
             # Handle Program Name - clean NaN values
             program_name_val = row.get('Program Name', 'Unknown')
