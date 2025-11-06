@@ -812,14 +812,16 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     has_attendance_from_attendance = 'attendance_pct_attendance' in merged.columns
     
     # Preserve attendance_pct from attendance sheet
+    # Track if data actually exists (not just if it's 0.0)
     if 'attendance_pct' not in merged.columns:
         if 'attendance_pct_attendance' in merged.columns:
-            merged['attendance_pct'] = merged['attendance_pct_attendance'].fillna(0.0)
+            # Check if data exists BEFORE filling NaN
             merged['_has_attendance'] = merged['attendance_pct_attendance'].notna()
+            merged['attendance_pct'] = merged['attendance_pct_attendance'].fillna(0.0)
             merged = merged.drop(columns=['attendance_pct_attendance'])
         elif 'attendance_pct_grades' in merged.columns:
-            merged['attendance_pct'] = merged['attendance_pct_grades'].fillna(0.0)
             merged['_has_attendance'] = merged['attendance_pct_grades'].notna()
+            merged['attendance_pct'] = merged['attendance_pct_grades'].fillna(0.0)
             merged = merged.drop(columns=['attendance_pct_grades'])
         else:
             # Try to find any attendance percentage column
@@ -827,32 +829,42 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
             for col in merged.columns:
                 if 'attended' in str(col).lower() and ('%' in str(col) or 'pct' in str(col).lower()):
                     found_col = col
-                    merged['attendance_pct'] = merged[col].fillna(0.0)
                     merged['_has_attendance'] = merged[col].notna()
+                    merged['attendance_pct'] = merged[col].fillna(0.0)
                     break
             if not found_col:
                 merged['attendance_pct'] = 0.0
                 merged['_has_attendance'] = False
     else:
+        # If attendance_pct already exists, check if it came from either sheet
+        merged['_has_attendance'] = (
+            (merged.get('attendance_pct_attendance', pd.Series([False] * len(merged))).notna()) |
+            (merged.get('attendance_pct_grades', pd.Series([False] * len(merged))).notna()) |
+            merged['attendance_pct'].notna()
+        )
         merged['attendance_pct'] = merged['attendance_pct'].fillna(0.0)
-        merged['_has_attendance'] = merged['attendance_pct'].notna() & (merged['attendance_pct'] != 0.0)
     
     # Preserve grade_pct from grades sheet
     if 'grade_pct' not in merged.columns:
         if 'grade_pct_grades' in merged.columns:
-            merged['grade_pct'] = merged['grade_pct_grades'].fillna(0.0)
             merged['_has_grade'] = merged['grade_pct_grades'].notna()
+            merged['grade_pct'] = merged['grade_pct_grades'].fillna(0.0)
             merged = merged.drop(columns=['grade_pct_grades'])
         elif 'grade_pct_attendance' in merged.columns:
-            merged['grade_pct'] = merged['grade_pct_attendance'].fillna(0.0)
             merged['_has_grade'] = merged['grade_pct_attendance'].notna()
+            merged['grade_pct'] = merged['grade_pct_attendance'].fillna(0.0)
             merged = merged.drop(columns=['grade_pct_attendance'])
         else:
             merged['grade_pct'] = 0.0
             merged['_has_grade'] = False
     else:
+        # If grade_pct already exists, check if it came from either sheet
+        merged['_has_grade'] = (
+            (merged.get('grade_pct_grades', pd.Series([False] * len(merged))).notna()) |
+            (merged.get('grade_pct_attendance', pd.Series([False] * len(merged))).notna()) |
+            merged['grade_pct'].notna()
+        )
         merged['grade_pct'] = merged['grade_pct'].fillna(0.0)
-        merged['_has_grade'] = merged['grade_pct'].notna() & (merged['grade_pct'] != 0.0)
     
     # Determine data status - label missing data based on whether data actually exists
     # Use the _has_grade and _has_attendance flags to determine if data is missing
