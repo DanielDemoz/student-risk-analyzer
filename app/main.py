@@ -437,6 +437,7 @@ async def get_results():
     results = results_cache[latest_session]
     
     summary = {
+        'Failed': sum(1 for r in results if r.risk_category == 'Failed'),
         'High': sum(1 for r in results if r.risk_category == 'High'),
         'Medium': sum(1 for r in results if r.risk_category == 'Medium'),
         'Low': sum(1 for r in results if r.risk_category == 'Low'),
