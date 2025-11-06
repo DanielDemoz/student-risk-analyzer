@@ -612,17 +612,36 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     # Check Student# columns
     if 'Student#' in grades_df.columns:
         print(f"grades_df Student# sample: {grades_df['Student#'].head(3).tolist()}")
+        print(f"grades_df Student# dtype: {grades_df['Student#'].dtype}")
     if 'Student#' in attendance_df.columns:
         print(f"attendance_df Student# sample: {attendance_df['Student#'].head(3).tolist()}")
+        print(f"attendance_df Student# dtype: {attendance_df['Student#'].dtype}")
     
-    # Merge on Student#
+    # Ensure Student# is numeric in both DataFrames before merging
+    if 'Student#' in grades_df.columns:
+        try:
+            grades_df['Student#'] = pd.to_numeric(grades_df['Student#'], errors='coerce').fillna(0).astype(int)
+            print(f"Converted grades_df Student# to int, sample: {grades_df['Student#'].head(3).tolist()}")
+        except (ValueError, TypeError) as e:
+            print(f"Warning: Could not convert grades_df Student# to numeric: {e}")
+    
+    if 'Student#' in attendance_df.columns:
+        try:
+            attendance_df['Student#'] = pd.to_numeric(attendance_df['Student#'], errors='coerce').fillna(0).astype(int)
+            print(f"Converted attendance_df Student# to int, sample: {attendance_df['Student#'].head(3).tolist()}")
+        except (ValueError, TypeError) as e:
+            print(f"Warning: Could not convert attendance_df Student# to numeric: {e}")
+    
+    # Merge on Student# using inner join to only keep students present in both sheets
     merged = pd.merge(
         grades_df,
         attendance_df,
         on='Student#',
-        how='left',
+        how='inner',  # Use inner join to only keep students present in both sheets
         suffixes=('_grades', '_attendance')
     )
+    
+    print(f"After merge with inner join, merged shape: {merged.shape}")
     
     print(f"\n=== DEBUG: merge_data - AFTER MERGE ===")
     print(f"merged shape: {merged.shape}")
