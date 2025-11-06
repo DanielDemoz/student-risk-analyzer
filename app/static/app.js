@@ -205,6 +205,7 @@ function displayResults(data) {
     resultsSection.classList.remove('d-none');
 
     // Update summary
+    document.getElementById('failedCount').textContent = data.summary.Failed || 0;
     document.getElementById('highCount').textContent = data.summary.High || 0;
     document.getElementById('mediumCount').textContent = data.summary.Medium || 0;
     document.getElementById('lowCount').textContent = data.summary.Low || 0;

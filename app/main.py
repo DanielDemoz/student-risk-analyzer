@@ -400,6 +400,7 @@ async def upload_file(
         
         # Summary counts
         summary = {
+            'Failed': sum(1 for r in results if r.risk_category == 'Failed'),
             'High': sum(1 for r in results if r.risk_category == 'High'),
             'Medium': sum(1 for r in results if r.risk_category == 'Medium'),
             'Low': sum(1 for r in results if r.risk_category == 'Low'),
@@ -407,7 +408,7 @@ async def upload_file(
             'At Risk (Simple Rule)': sum(1 for r in results if r.simple_rule_flagged)
         }
         
-        print(f"Results: {summary['Total']} students ({summary['High']} High, {summary['Medium']} Medium, {summary['Low']} Low risk)")
+        print(f"Results: {summary['Total']} students ({summary['Failed']} Failed, {summary['High']} High, {summary['Medium']} Medium, {summary['Low']} Low risk)")
         
         return UploadResponse(
             success=True,
