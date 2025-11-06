@@ -13,6 +13,7 @@ class StudentRiskResult(BaseModel):
     attendance_pct: float
     risk_score: float
     risk_category: str
+    risk_color: str  # Hex color code for risk category
     simple_rule_flagged: bool
     campus_login_url: str
     data_status: str  # "Complete", "Missing Grade", "Missing Attendance", "Missing Both"

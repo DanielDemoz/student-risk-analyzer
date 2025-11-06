@@ -252,19 +252,11 @@ function createTableRow(result) {
     // Student ID
     const studentId = result.student_id || 'N/A';
     
-    // Risk category badge (handle Failed category)
-    let badgeClass = `badge-${result.risk_category.toLowerCase()}`;
-    // Map risk categories to Bootstrap badge classes
-    const categoryBadgeMap = {
-        'low': 'bg-success',
-        'medium': 'bg-warning',
-        'high': 'bg-danger',
-        'extremely high risk': 'bg-dark',
-        'failed': 'bg-dark'  // Keep for backward compatibility
-    };
-    const categoryLower = result.risk_category.toLowerCase();
-    const bootstrapBadge = categoryBadgeMap[categoryLower] || 'bg-secondary';
-    const badge = `<span class="badge ${bootstrapBadge}">${result.risk_category.toUpperCase()}</span>`;
+    // Risk category badge with color coding
+    // Use risk_color from API if available, otherwise fallback to Bootstrap classes
+    const riskColor = result.risk_color || '#6B7280';  // Default gray
+    const badgeStyle = `background-color: ${riskColor}; color: white; font-weight: 600;`;
+    const badge = `<span class="badge" style="${badgeStyle}">${result.risk_category.toUpperCase()}</span>`;
 
     // Student name with link (for Campus Login - but we'll show name separately in table)
     const studentNameLink = `<a href="${result.campus_login_url}" target="_blank">${result.student_name || 'Unknown'}</a>`;

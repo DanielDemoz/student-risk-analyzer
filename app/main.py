@@ -300,14 +300,28 @@ async def upload_file(
         for row_idx, (_, row) in enumerate(merged_df.iterrows()):
             if row_idx < 5:  # Debug first 5 rows
                 print(f"DEBUG: Processing row {row_idx}, Student#: {row.get('Student#')}, Student Name: {row.get('Student Name', 'Unknown')}")
-            student_id = str(row['Student#']).strip()
+            # Extract Student# and Student Name - ensure correct alignment
+            # Student# should be numeric ID, Student Name should be actual name
+            student_id_val = row.get('Student#', 'Unknown')
+            if pd.isna(student_id_val):
+                student_id = 'Unknown'
+            else:
+                # Convert to string and strip - this is the numeric ID
+                student_id = str(student_id_val).strip()
             
-            # Handle Student Name - clean NaN values
+            # Handle Student Name - clean NaN values and ensure it's not the ID
             student_name_val = row.get('Student Name', 'Unknown')
             if pd.isna(student_name_val) or str(student_name_val).strip().lower() in ['nan', 'none', '']:
                 student_name = 'Unknown'
             else:
                 student_name = str(student_name_val).strip()
+                # Safety check: if Student Name looks like a number and matches Student#, use 'Unknown'
+                try:
+                    # If student_name is numeric and matches student_id, it's likely misaligned
+                    if student_name.isdigit() and student_name == student_id:
+                        student_name = 'Unknown'
+                except (AttributeError, ValueError):
+                    pass
             
             # Handle Program Name - clean NaN values
             program_name_val = row.get('Program Name', 'Unknown')
@@ -347,25 +361,31 @@ async def upload_file(
             
             # Adjust risk category based on data status
             # Use direct grade/attendance classification for more accurate results
-            from app.risk import classify_risk_by_grade_attendance
+            from app.risk import classify_risk_by_grade_attendance, get_risk_color
             
             try:
                 if data_status == 'Missing Both':
                     risk_category = 'Insufficient Data'
+                    risk_color = '#6B7280'  # Gray for missing data
                 elif data_status == 'Missing Grade':
                     risk_category = 'Missing Grade'
+                    risk_color = '#6B7280'  # Gray for missing data
                 elif data_status == 'Missing Attendance':
                     risk_category = 'Missing Attendance'
+                    risk_color = '#6B7280'  # Gray for missing data
                 elif data_status == 'Complete':
                     # Use direct classification based on grade and attendance
                     risk_category = classify_risk_by_grade_attendance(grade_pct, attendance_pct)
+                    risk_color = get_risk_color(risk_category)
                 else:
                     # Fallback to risk score-based category
                     base_category = categories[row_idx] if row_idx < len(categories) else 'Low'
                     risk_category = base_category
+                    risk_color = get_risk_color(risk_category)
             except (IndexError, KeyError, TypeError) as e:
                 print(f"Warning: Error classifying risk for row {row_idx}: {e}")
                 risk_category = 'Low'
+                risk_color = get_risk_color('Low')
             
             # Simple rule only applies if both values are available
             if data_status == 'Complete':
@@ -398,6 +418,7 @@ async def upload_file(
                 attendance_pct=attendance_pct,
                 risk_score=risk_score,
                 risk_category=risk_category,
+                risk_color=risk_color,
                 simple_rule_flagged=simple_rule_flagged,
                 campus_login_url=campus_login_url,
                 data_status=data_status,

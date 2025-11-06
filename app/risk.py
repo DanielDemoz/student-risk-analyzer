@@ -55,6 +55,28 @@ def get_risk_category(risk_score: float, thresholds: Dict[str, float]) -> str:
         return 'Low'
 
 
+# Risk category color mapping
+RISK_COLOR_MAP = {
+    "Low Risk": "#00B050",            # Green
+    "Medium Risk": "#FFC000",         # Orange
+    "High Risk": "#FF0000",           # Red
+    "Extremely High Risk": "#7030A0"  # Dark purple / maroon
+}
+
+
+def get_risk_color(risk_category: str) -> str:
+    """
+    Get color code for a risk category.
+    
+    Args:
+        risk_category: Risk category string
+    
+    Returns:
+        Hex color code string
+    """
+    return RISK_COLOR_MAP.get(risk_category, "#6B7280")  # Default gray
+
+
 def classify_risk_by_grade_attendance(grade_pct: float, attendance_pct: float) -> str:
     """
     Classify risk category directly from grade and attendance percentages.
