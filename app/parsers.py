@@ -24,61 +24,97 @@ def normalize_and_rename_columns(df: pd.DataFrame, sheet_type: str) -> pd.DataFr
     # Create a copy to avoid modifying the original
     df = df.copy()
     
-    # Normalize base names (lowercase, trimmed, remove dots/%)
-    # Keep original column mapping for reference
-    original_columns = df.columns.tolist()
-    normalized_columns = [
-        re.sub(r'\s+', ' ', c.strip().lower().replace('.', '').replace('%', '').replace(',', ''))
-        for c in df.columns
-    ]
+    # Normalize base names (lowercase, trimmed, remove dots/%/commas, normalize whitespace)
+    def normalize_col_name(col_name):
+        """Normalize a column name for matching."""
+        if pd.isna(col_name):
+            return ""
+        # Convert to string, lowercase, remove special chars, normalize whitespace
+        normalized = str(col_name).strip().lower()
+        normalized = re.sub(r'[.,%#]', '', normalized)  # Remove dots, commas, %, #
+        normalized = re.sub(r'\s+', ' ', normalized)  # Normalize whitespace
+        return normalized.strip()
     
-    # Create mapping from normalized to original for reference
-    col_mapping = dict(zip(original_columns, normalized_columns))
+    original_columns = df.columns.tolist()
     
     if sheet_type == "grades":
-        rename_map = {
-            "student#": "Student#",
-            "student number": "Student#",
-            "student name": "Student Name",
-            "program name": "Program Name",
-            "program grade": "current overall Program Grade",
-            "grade": "current overall Program Grade",
-            "overall program grade": "current overall Program Grade",
-            "current overall program grade": "current overall Program Grade",
+        # Define target standard names and their possible variations
+        target_mappings = {
+            "Student#": ["student#", "student number", "student id", "studentid", "studentnum"],
+            "Student Name": ["student name", "studentname", "name", "student"],
+            "Program Name": ["program name", "programname", "program", "course name", "coursename"],
+            "current overall Program Grade": [
+                "program grade", "grade", "overall program grade", 
+                "current overall program grade", "overall grade", "final grade",
+                "current grade", "programgrade"
+            ],
         }
     elif sheet_type == "attendance":
-        rename_map = {
-            "student#": "Student#",
-            "student number": "Student#",
-            "student name": "Student Name",
-            "scheduled hours to date": "Scheduled Hours to Date",
-            "attended hours to date": "Attended Hours to Date",
-            "attended to date": "Attended % to Date.",
-            "attended percent to date": "Attended % to Date.",
-            "attended % to date": "Attended % to Date.",
-            "attended  to date": "Attended % to Date.",  # Handle double space
-            "missed hours to date": "Missed Hours to Date",
-            "% missed": "% Missed",
-            "missed": "% Missed",
-            "missed minus excused to date": "Missed Minus Excused to date",
-            "missed minus excused to date": "Missed Minus Excused to date",
-            "campus login url": "Campus Login URL",
+        target_mappings = {
+            "Student#": ["student#", "student number", "student id", "studentid", "studentnum"],
+            "Student Name": ["student name", "studentname", "name", "student"],
+            "Scheduled Hours to Date": ["scheduled hours to date", "scheduled hours", "scheduledhours"],
+            "Attended Hours to Date": ["attended hours to date", "attended hours", "attendedhours"],
+            "Attended % to Date.": [
+                "attended to date", "attended percent to date", "attended % to date",
+                "attended% to date", "attendance percent", "attendance %", "attended pct"
+            ],
+            "Missed Hours to Date": ["missed hours to date", "missed hours", "missedhours"],
+            "% Missed": ["% missed", "missed", "missed percent", "missed %", "missed%"],
+            "Missed Minus Excused to date": [
+                "missed minus excused to date", "missed minus excused", 
+                "missed minus excused hours"
+            ],
+            "Campus Login URL": ["campus login url", "campus login", "login url", "campusurl"],
         }
     else:
-        # Unknown sheet type, just normalize whitespace
-        rename_map = {}
+        target_mappings = {}
     
-    # Build actual rename mapping from original columns to standard names
+    # Build actual rename mapping by matching normalized column names
     actual_rename = {}
     for orig_col in original_columns:
-        normalized = col_mapping[orig_col]
-        if normalized in rename_map:
-            actual_rename[orig_col] = rename_map[normalized]
+        normalized = normalize_col_name(orig_col)
+        
+        # Try to find a match in target_mappings
+        for target_name, variations in target_mappings.items():
+            if normalized in variations:
+                actual_rename[orig_col] = target_name
+                break
     
     # Apply renaming
     if actual_rename:
         df = df.rename(columns=actual_rename)
         print(f"DEBUG: Renamed columns in {sheet_type} sheet: {actual_rename}")
+        print(f"DEBUG: Columns after renaming: {list(df.columns)}")
+    else:
+        print(f"WARNING: No columns were renamed in {sheet_type} sheet. Original columns: {list(df.columns)}")
+    
+    # Ensure required columns exist - if not found, try to create them or use closest match
+    if sheet_type == "grades":
+        if "Student Name" not in df.columns:
+            # Try to find any column that might be student name
+            for col in df.columns:
+                if normalize_col_name(col) in ["student name", "studentname", "name"]:
+                    df = df.rename(columns={col: "Student Name"})
+                    print(f"DEBUG: Found and renamed '{col}' to 'Student Name'")
+                    break
+            else:
+                # If still not found, create a placeholder column
+                print("WARNING: 'Student Name' column not found, creating placeholder")
+                df["Student Name"] = "Unknown"
+    
+    elif sheet_type == "attendance":
+        if "Student Name" not in df.columns:
+            # Try to find any column that might be student name
+            for col in df.columns:
+                if normalize_col_name(col) in ["student name", "studentname", "name"]:
+                    df = df.rename(columns={col: "Student Name"})
+                    print(f"DEBUG: Found and renamed '{col}' to 'Student Name'")
+                    break
+            else:
+                # If still not found, create a placeholder column
+                print("WARNING: 'Student Name' column not found, creating placeholder")
+                df["Student Name"] = "Unknown"
     
     return df
 
