@@ -418,17 +418,22 @@ async def upload_file(
         session_id = datetime.now().isoformat()
         results_cache[session_id] = results
         
-        # Summary counts
+        # Summary counts - match exact category names from classify_risk_by_grade_attendance
         summary = {
             'Failed': sum(1 for r in results if r.risk_category == 'Extremely High Risk'),
-            'High': sum(1 for r in results if r.risk_category == 'High'),
-            'Medium': sum(1 for r in results if r.risk_category == 'Medium'),
-            'Low': sum(1 for r in results if r.risk_category == 'Low'),
+            'High': sum(1 for r in results if r.risk_category == 'High Risk'),
+            'Medium': sum(1 for r in results if r.risk_category == 'Medium Risk'),
+            'Low': sum(1 for r in results if r.risk_category == 'Low Risk'),
             'Total': len(results),
             'At Risk (Simple Rule)': sum(1 for r in results if r.simple_rule_flagged)
         }
         
-        print(f"Results: {summary['Total']} students ({summary['Failed']} Extremely High Risk, {summary['High']} High, {summary['Medium']} Medium, {summary['Low']} Low risk)")
+        # Also count old category names for backward compatibility
+        summary['High'] += sum(1 for r in results if r.risk_category == 'High')
+        summary['Medium'] += sum(1 for r in results if r.risk_category == 'Medium')
+        summary['Low'] += sum(1 for r in results if r.risk_category == 'Low')
+        
+        print(f"Results: {summary['Total']} students ({summary['Failed']} Extremely High Risk, {summary['High']} High Risk, {summary['Medium']} Medium Risk, {summary['Low']} Low Risk)")
         
         return UploadResponse(
             success=True,
@@ -458,11 +463,16 @@ async def get_results():
     
     summary = {
         'Failed': sum(1 for r in results if r.risk_category == 'Extremely High Risk'),
-        'High': sum(1 for r in results if r.risk_category == 'High'),
-        'Medium': sum(1 for r in results if r.risk_category == 'Medium'),
-        'Low': sum(1 for r in results if r.risk_category == 'Low'),
+        'High': sum(1 for r in results if r.risk_category == 'High Risk'),
+        'Medium': sum(1 for r in results if r.risk_category == 'Medium Risk'),
+        'Low': sum(1 for r in results if r.risk_category == 'Low Risk'),
         'Total': len(results)
     }
+    
+    # Also count old category names for backward compatibility
+    summary['High'] += sum(1 for r in results if r.risk_category == 'High')
+    summary['Medium'] += sum(1 for r in results if r.risk_category == 'Medium')
+    summary['Low'] += sum(1 for r in results if r.risk_category == 'Low')
     
     return {
         'session_id': latest_session,

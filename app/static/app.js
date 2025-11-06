@@ -204,11 +204,19 @@ function displayResults(data) {
     // Show results section
     resultsSection.classList.remove('d-none');
 
-    // Update summary
-    document.getElementById('failedCount').textContent = data.summary.Failed || 0;
-    document.getElementById('highCount').textContent = data.summary.High || 0;
-    document.getElementById('mediumCount').textContent = data.summary.Medium || 0;
-    document.getElementById('lowCount').textContent = data.summary.Low || 0;
+    // Update summary with correct category matching
+    const failedCount = data.summary.Failed || 0;
+    const highCount = data.summary.High || 0;
+    const mediumCount = data.summary.Medium || 0;
+    const lowCount = data.summary.Low || 0;
+    
+    document.getElementById('failedCount').textContent = failedCount;
+    document.getElementById('highCount').textContent = highCount;
+    document.getElementById('mediumCount').textContent = mediumCount;
+    document.getElementById('lowCount').textContent = lowCount;
+    
+    // Debug: Log summary to console
+    console.log('Summary counts:', { failedCount, highCount, mediumCount, lowCount, total: data.summary.Total });
     document.getElementById('totalCount').textContent = data.summary.Total || 0;
     
     // Calculate and display average grade and attendance
