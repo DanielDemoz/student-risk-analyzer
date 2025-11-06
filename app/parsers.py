@@ -105,6 +105,49 @@ def normalize_pct(x) -> float:
         return 0.0
 
 
+def normalize_attendance_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Preprocessing step to automatically clean and normalize attendance data.
+    
+    This function:
+    - Converts all "HH:MM" time strings into decimal hours (e.g., "89:45" -> 89.75)
+    - Normalizes attendance percentages (e.g., 0.997 -> 99.7)
+    - Replaces NaN or invalid values with 0
+    
+    Args:
+        df: Raw attendance DataFrame
+    
+    Returns:
+        Cleaned and normalized attendance DataFrame
+    """
+    # Make a copy to avoid modifying the original
+    df = df.copy()
+    
+    # Convert HH:MM text columns to decimal hours
+    time_columns = [
+        "Scheduled Hours to Date",
+        "Attended Hours to Date",
+        "Missed Hours to Date",
+        "Missed Minus Excused to date",
+    ]
+    
+    for col in time_columns:
+        if col in df.columns:
+            df[col] = df[col].apply(to_hours)
+    
+    # Normalize percentage columns
+    percentage_columns = ["Attended % to Date.", "% Missed"]
+    
+    for col in percentage_columns:
+        if col in df.columns:
+            df[col] = df[col].apply(normalize_pct)
+    
+    # Replace invalid or missing values
+    df = df.replace([np.inf, -np.inf, np.nan], 0)
+    
+    return df
+
+
 def normalize_percentage(value: float, max_value: float = 1.0) -> float:
     """
     Normalize percentage to 0-100 range.
@@ -378,24 +421,12 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
     elif 'Campus Login URL' not in attendance_normalized.columns:
         attendance_normalized['Campus Login URL'] = None
 
-    # Apply to_hours directly to exact column names (if they exist)
-    # Convert time-based columns from "HH:MM" strings to numeric hours
-    if 'Scheduled Hours to Date' in attendance_normalized.columns:
-        attendance_normalized['Scheduled Hours to Date'] = attendance_normalized['Scheduled Hours to Date'].apply(to_hours)
+    # PREPROCESSING STEP: Automatically clean and normalize attendance data
+    # This converts HH:MM strings to decimal hours, normalizes percentages, and replaces invalid values
+    attendance_normalized = normalize_attendance_data(attendance_normalized)
     
-    if 'Attended Hours to Date' in attendance_normalized.columns:
-        attendance_normalized['Attended Hours to Date'] = attendance_normalized['Attended Hours to Date'].apply(to_hours)
-    
-    if 'Missed Hours to Date' in attendance_normalized.columns:
-        attendance_normalized['Missed Hours to Date'] = attendance_normalized['Missed Hours to Date'].apply(to_hours)
-    
-    if 'Missed Minus Excused to date' in attendance_normalized.columns:
-        attendance_normalized['Missed Minus Excused to date'] = attendance_normalized['Missed Minus Excused to date'].apply(to_hours)
-    
-    # Normalize percentage columns directly using exact column names
-    # Apply normalize_pct to "Attended % to Date." if it exists
+    # Extract attendance_pct from normalized "Attended % to Date." column
     if 'Attended % to Date.' in attendance_normalized.columns:
-        attendance_normalized['Attended % to Date.'] = attendance_normalized['Attended % to Date.'].apply(normalize_pct)
         attendance_normalized['attendance_pct'] = attendance_normalized['Attended % to Date.']
     else:
         # Column not found - try to calculate from hours
@@ -414,15 +445,11 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
             # Last resort: set to 0
             attendance_normalized['attendance_pct'] = 0.0
     
-    # Normalize "% Missed" column if it exists
+    # Extract missed_pct from normalized "% Missed" column
     if '% Missed' in attendance_normalized.columns:
-        attendance_normalized['% Missed'] = attendance_normalized['% Missed'].apply(normalize_pct)
         attendance_normalized['missed_pct'] = attendance_normalized['% Missed']
     else:
         attendance_normalized['missed_pct'] = 0.0
-    
-    # Clean invalid values (NaN, Infinity) before returning
-    attendance_normalized = attendance_normalized.replace([np.inf, -np.inf, np.nan], 0)
     
     # Debug: Print sample data to verify transformations
     if 'Student Name' in attendance_normalized.columns:
