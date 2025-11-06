@@ -334,16 +334,27 @@ def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str,
     # Extract hyperlinks from attendance sheet
     if att_header_row and att_student_id_col and att_student_name_col:
         for row in attendance_sheet.iter_rows(min_row=att_header_row + 1):
-            student_id_cell = row[att_student_id_col - 1]
-            student_name_cell = row[att_student_name_col - 1]
-            
-            if student_id_cell.value and student_name_cell.value:
-                student_id = str(student_id_cell.value).strip()
-                hyperlink = extract_hyperlink_from_cell(student_name_cell)
-                if hyperlink:
-                    attendance_hyperlinks[student_id] = hyperlink
-                    # Attendance sheet hyperlinks take precedence over grades sheet
-                    name_hyperlinks[student_id] = hyperlink
+            # Check if row has enough columns
+            if len(row) < max(att_student_id_col, att_student_name_col):
+                continue
+            try:
+                student_id_cell = row[att_student_id_col - 1]
+                student_name_cell = row[att_student_name_col - 1]
+                
+                if student_id_cell.value and student_name_cell.value:
+                    # Convert Student# to numeric for consistent matching
+                    try:
+                        student_id = str(int(float(student_id_cell.value)))
+                    except (ValueError, TypeError):
+                        student_id = str(student_id_cell.value).strip()
+                    hyperlink = extract_hyperlink_from_cell(student_name_cell)
+                    if hyperlink:
+                        attendance_hyperlinks[student_id] = hyperlink
+                        # Attendance sheet hyperlinks take precedence over grades sheet
+                        name_hyperlinks[student_id] = hyperlink
+            except IndexError:
+                # Skip rows that don't have enough columns
+                continue
     
     # Load attendance dataframe
     attendance_df = pd.read_excel(excel_file, sheet_name=attendance_sheet_name, engine='openpyxl')
@@ -370,8 +381,14 @@ def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str,
     attendance_df.columns = attendance_df.columns.str.strip()
     
     # Add Campus Login URL column to attendance_df (after column normalization)
+    # First, ensure Student# is numeric for consistent matching
     if 'Student#' in attendance_df.columns:
-        attendance_df['Campus Login URL'] = attendance_df['Student#'].astype(str).str.strip().map(
+        # Convert to numeric, then to string for mapping
+        try:
+            student_ids = pd.to_numeric(attendance_df['Student#'], errors='coerce').fillna(0).astype(int).astype(str)
+        except (ValueError, TypeError):
+            student_ids = attendance_df['Student#'].astype(str).str.strip()
+        attendance_df['Campus Login URL'] = student_ids.map(
             lambda x: attendance_hyperlinks.get(x, None)
         )
     else:
@@ -382,7 +399,11 @@ def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str,
                 student_id_col = col
                 break
         if student_id_col:
-            attendance_df['Campus Login URL'] = attendance_df[student_id_col].astype(str).str.strip().map(
+            try:
+                student_ids = pd.to_numeric(attendance_df[student_id_col], errors='coerce').fillna(0).astype(int).astype(str)
+            except (ValueError, TypeError):
+                student_ids = attendance_df[student_id_col].astype(str).str.strip()
+            attendance_df['Campus Login URL'] = student_ids.map(
                 lambda x: attendance_hyperlinks.get(x, None)
             )
         else:
@@ -436,16 +457,21 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
     """
     # Normalize Grades sheet
     grades_normalized = grades_df.copy()
-    
+
     # Find Student# column (case-insensitive)
     student_id_col = None
     for col in grades_normalized.columns:
         if 'student#' in col.lower().strip():
             student_id_col = col
             break
-    
+
     if student_id_col:
-        grades_normalized['Student#'] = grades_normalized[student_id_col].astype(str).str.strip()
+        # Convert Student# to numeric (int) for consistent matching
+        try:
+            grades_normalized['Student#'] = pd.to_numeric(grades_normalized[student_id_col], errors='coerce').fillna(0).astype(int)
+        except (ValueError, TypeError):
+            # Fallback to string if conversion fails
+            grades_normalized['Student#'] = grades_normalized[student_id_col].astype(str).str.strip()
     
     # Normalize grade percentage (find column case-insensitively)
     grade_col = None
@@ -483,7 +509,12 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
             break
 
     if student_id_col:
-        attendance_normalized['Student#'] = attendance_normalized[student_id_col].astype(str).str.strip()
+        # Convert Student# to numeric (int) for consistent matching
+        try:
+            attendance_normalized['Student#'] = pd.to_numeric(attendance_normalized[student_id_col], errors='coerce').fillna(0).astype(int)
+        except (ValueError, TypeError):
+            # Fallback to string if conversion fails
+            attendance_normalized['Student#'] = attendance_normalized[student_id_col].astype(str).str.strip()
 
     # Preserve Campus Login URL column
     if campus_login_url_col and campus_login_url_col != 'Campus Login URL':
