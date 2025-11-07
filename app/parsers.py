@@ -1615,16 +1615,34 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
             # Generate sequential IDs if neither exists
             merged['Student#'] = range(1, len(merged) + 1)
     
-    # Verify merged DataFrame has Student Name
-    if 'Student Name' not in merged.columns and 'Student Name_grades' not in merged.columns and 'Student Name_attendance' not in merged.columns:
+    # Verify merged DataFrame has Student Name columns (check for all possible suffixes)
+    has_student_name = (
+        'Student Name' in merged.columns or
+        'Student Name_grade' in merged.columns or
+        'Student Name_att' in merged.columns or
+        'Student Name_grades' in merged.columns or
+        'Student Name_attendance' in merged.columns
+    )
+    
+    if not has_student_name:
         print(f"WARNING: 'Student Name' not found in merged DataFrame. Available columns: {list(merged.columns)}")
-        merged['Student Name'] = 'Unknown'
+        # Don't set to 'Unknown' yet - let the comprehensive patch handle it
     
     try:
-        student_name_col = 'Student Name' if 'Student Name' in merged.columns else ('Student Name_grades' if 'Student Name_grades' in merged.columns else 'Student Name_attendance')
-        print(f"After merge ({merge_method}): {len(merged)} rows, {safe_get_series(merged, student_name_col).nunique()} unique students")
-        print(f"DEBUG: merged columns: {list(merged.columns)}")
-        print(f"DEBUG: merged Student Name sample: {safe_get_series(merged, student_name_col).head(10).tolist()}")
+        # Find any Student Name column for debugging
+        student_name_col = None
+        for col in ['Student Name', 'Student Name_grade', 'Student Name_att', 'Student Name_grades', 'Student Name_attendance']:
+            if col in merged.columns:
+                student_name_col = col
+                break
+        
+        if student_name_col:
+            print(f"After merge ({merge_method}): {len(merged)} rows, {safe_get_series(merged, student_name_col).nunique()} unique students")
+            print(f"DEBUG: merged columns: {list(merged.columns)}")
+            print(f"DEBUG: merged Student Name sample ({student_name_col}): {safe_get_series(merged, student_name_col).head(10).tolist()}")
+        else:
+            print(f"After merge ({merge_method}): {len(merged)} rows")
+            print(f"DEBUG: merged columns: {list(merged.columns)}")
     except Exception as e:
         print(f"WARNING: Could not print merge statistics: {e}")
         print(f"After merge ({merge_method}): {len(merged)} rows")
@@ -1642,15 +1660,19 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     merged = _clean_header_cols(merged)
     
     # 2) Identify any columns that are student-name candidates (case- & suffix-agnostic)
+    # IMPORTANT: The merge uses suffixes ('_grade', '_att'), so look for those patterns
     name_cols = [c for c in merged.columns if re.fullmatch(r"(?i)student name(_.*)?", c)]
     # If we also have a canonical column without suffix, prefer it first
+    # Priority: Student Name (no suffix) > Student Name_grade > Student Name_att > Student Name_attendance > Student Name_grades
     name_cols = sorted(
         name_cols,
         key=lambda c: (
-            0 if re.fullmatch(r"(?i)student name$", c) else 1,
-            0 if re.search(r"(?i)_grade", c) else (1 if re.search(r"(?i)_att|_attendance", c) else 2)
+            0 if re.fullmatch(r"(?i)student name$", c) else 1,  # No suffix first
+            0 if re.search(r"(?i)_grade$", c) else (1 if re.search(r"(?i)_att$", c) else (2 if re.search(r"(?i)_attendance", c) else 3))  # _grade, then _att, then _attendance
         )
     )
+    
+    print(f"DEBUG: Found name columns: {name_cols}")
     
     # 3) If no name columns detected, log for debugging
     if not name_cols:
@@ -1660,14 +1682,23 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     for c in name_cols:
         merged[c] = _clean_name_series(merged[c])
     
-    # 5) Coalesce across all candidate name columns (prefer unsuffixed, then _grade, then _attendance)
+    # 5) Coalesce across all candidate name columns (prefer unsuffixed, then _grade, then _att)
     #    Use bfill row-wise to pick the first non-null
     if name_cols:
+        print(f"DEBUG: Coalescing from {len(name_cols)} name columns: {name_cols}")
+        # Show sample values from each column before coalescing
+        for col in name_cols:
+            sample = merged[col].head(3).tolist()
+            print(f"DEBUG: {col} sample (first 3): {sample}")
+        
         coalesced = merged[name_cols].bfill(axis=1).iloc[:, 0]
-        merged["Student Name"] = _clean_name_series(coalesced).str.title()
+        print(f"DEBUG: Coalesced sample (first 3): {coalesced.head(3).tolist()}")
+        merged["Student Name"] = _clean_name_series(coalesced)
+        # Don't use .str.title() - preserve original name formatting
     else:
         # If no name columns found, check if Student Name already exists
         if "Student Name" not in merged.columns:
+            print("WARNING: No Student Name columns found, creating NaN series")
             merged["Student Name"] = pd.Series(np.nan, index=merged.index)
     
     # 6) If still missing, try fallback from alternative column names
@@ -1681,9 +1712,24 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     # 7) Clean up the final Student Name column
     merged["Student Name"] = _clean_name_series(merged["Student Name"])
     
-    # 8) Debug counters to show what we found
-    unk_before = (merged["Student Name"].isna() | (merged["Student Name"].astype(str).str.lower() == "unknown")).sum()
-    print(f"DEBUG: Names missing/Unknown before final cleanup: {unk_before} / {len(merged)}")
+    # 8) Final cleanup: Only set to "Unknown" if truly missing (not if it's a valid name)
+    # Check if Student Name contains actual names or is all "Unknown"
+    if "Student Name" in merged.columns:
+        # Replace NaN with "Unknown" only if truly missing
+        merged["Student Name"] = merged["Student Name"].fillna("Unknown")
+        # But don't overwrite valid names that might have been cleaned incorrectly
+        # If a name looks like a number (ID), it should have been caught earlier, but double-check
+        numeric_mask = merged["Student Name"].astype(str).str.match(r'^\d+\.?\d*$', na=False)
+        if numeric_mask.any():
+            print(f"WARNING: {numeric_mask.sum()} Student Names still appear to be numeric IDs after consolidation!")
+            print(f"Sample numeric 'names': {merged.loc[numeric_mask, 'Student Name'].head(3).tolist()}")
+    
+    # 9) Debug counters to show what we found
+    if "Student Name" in merged.columns:
+        unk_count = (merged["Student Name"].astype(str).str.strip().str.lower() == "unknown").sum()
+        valid_count = len(merged) - unk_count
+        print(f"DEBUG: After consolidation - Valid names: {valid_count}, Unknown: {unk_count} / {len(merged)}")
+        print(f"DEBUG: Final Student Name sample (first 5): {merged['Student Name'].head(5).tolist()}")
     
     # ============================================================
     # END COMPREHENSIVE STUDENT NAME FIX PATCH
