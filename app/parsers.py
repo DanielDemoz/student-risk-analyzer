@@ -1619,6 +1619,21 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
         print(f"DEBUG: Final Student Name sample (first 5): {merged['Student Name'].head(5).tolist()}")
         print(f"DEBUG: Student Name statistics - Valid: {(merged['Student Name'] != 'Unknown').sum()}, Unknown: {(merged['Student Name'] == 'Unknown').sum()}")
     
+    # Verification step: Check Student ID and Student Name alignment
+    if 'Student#' in merged.columns and 'Student Name' in merged.columns:
+        print(f"\n=== VERIFICATION: Student ID and Student Name alignment ===")
+        verification_df = merged[['Student#', 'Student Name']].head(10).copy()
+        print(verification_df.to_string())
+        print(f"=== END VERIFICATION ===\n")
+        
+        # Check for misalignment (Student Name contains numeric IDs)
+        numeric_names = verification_df['Student Name'].astype(str).str.match(r'^\d+\.?\d*$', na=False).sum()
+        if numeric_names > 0:
+            print(f"⚠️ WARNING: {numeric_names} out of 10 Student Names appear to be numeric IDs!")
+            print("This indicates a column misalignment issue.")
+        else:
+            print("✅ Student Name column contains actual names (not numeric IDs)")
+    
     # Fallback to Student Name merge (or use it if Student# doesn't exist)
     if merged is None:
         # Verify Student Name exists before merging
