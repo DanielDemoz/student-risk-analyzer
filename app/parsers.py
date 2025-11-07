@@ -513,6 +513,258 @@ def extract_hyperlink_from_cell(cell: Cell) -> Optional[str]:
     return None
 
 
+def load_refined_data(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, str]]:
+    """
+    Simplified data loading - only reads refined columns from Excel sheets.
+    
+    Grades Sheet: Student#, Student Name, Program Name, Program Grade
+    Attendance Sheet: Student#, Student Name, Attended % to Date.
+    
+    Args:
+        file_bytes: Raw bytes of the Excel file
+    
+    Returns:
+        Tuple of (grades_df, attendance_df, name_hyperlinks_dict)
+    """
+    from io import BytesIO
+    from openpyxl import load_workbook
+    import pandas as pd
+    
+    workbook = load_workbook(filename=BytesIO(file_bytes), data_only=False)
+    excel_file = BytesIO(file_bytes)
+    
+    # Find sheet names
+    grades_sheet_name = None
+    attendance_sheet_name = None
+    
+    for sheet_name in workbook.sheetnames:
+        if 'grade' in sheet_name.lower():
+            grades_sheet_name = sheet_name
+        elif 'attend' in sheet_name.lower():
+            attendance_sheet_name = sheet_name
+    
+    if not grades_sheet_name:
+        raise ValueError(f"Could not find grades sheet. Available sheets: {workbook.sheetnames}")
+    if not attendance_sheet_name:
+        raise ValueError(f"Could not find attendance sheet. Available sheets: {workbook.sheetnames}")
+    
+    # Load DataFrames
+    grades_df = pd.read_excel(excel_file, sheet_name=grades_sheet_name, engine='openpyxl')
+    excel_file.seek(0)  # Reset file pointer
+    attendance_df = pd.read_excel(excel_file, sheet_name=attendance_sheet_name, engine='openpyxl')
+    
+    # Extract hyperlinks from Student Name columns
+    name_hyperlinks = {}
+    
+    # Extract from grades sheet
+    if grades_sheet_name in workbook.sheetnames:
+        grades_sheet = workbook[grades_sheet_name]
+        # Find column indices
+        header_row = None
+        student_id_col = None
+        student_name_col = None
+        
+        for row_idx, row in enumerate(grades_sheet.iter_rows(min_row=1, max_row=20), start=1):
+            for col_idx, cell in enumerate(row, start=1):
+                cell_value = str(cell.value).strip() if cell.value else ''
+                if 'Student#' in cell_value or 'Student #' in cell_value:
+                    header_row = row_idx
+                    student_id_col = col_idx
+                elif 'Student Name' in cell_value:
+                    student_name_col = col_idx
+            
+            if header_row and student_id_col and student_name_col:
+                break
+        
+        # Extract hyperlinks
+        if header_row and student_id_col and student_name_col:
+            for row in grades_sheet.iter_rows(min_row=header_row + 1):
+                if len(row) < max(student_id_col, student_name_col):
+                    continue
+                try:
+                    student_id_cell = row[student_id_col - 1]
+                    student_name_cell = row[student_name_col - 1]
+                    
+                    if student_id_cell.value and student_name_cell.value:
+                        try:
+                            student_id = str(int(float(student_id_cell.value)))
+                        except (ValueError, TypeError):
+                            student_id = str(student_id_cell.value).strip()
+                        hyperlink = extract_hyperlink_from_cell(student_name_cell)
+                        if hyperlink:
+                            name_hyperlinks[student_id] = hyperlink
+                except (IndexError, TypeError):
+                    continue
+    
+    # Normalize and rename columns in grades_df
+    grades_df = normalize_and_rename_columns(grades_df, 'grades')
+    
+    # Keep only required columns: Student#, Student Name, Program Name, Program Grade
+    required_grades_cols = []
+    for col in ['Student#', 'Student Name', 'Program Name', 'current overall Program Grade']:
+        if col in grades_df.columns:
+            required_grades_cols.append(col)
+        else:
+            # Try to find similar column
+            for actual_col in grades_df.columns:
+                if normalize_col_name(actual_col) == normalize_col_name(col):
+                    required_grades_cols.append(actual_col)
+                    break
+    
+    if len(required_grades_cols) < 4:
+        raise ValueError(f"Missing required columns in grades sheet. Found: {list(grades_df.columns)}, Required: Student#, Student Name, Program Name, Program Grade")
+    
+    # Select and rename columns
+    grades_df = grades_df[required_grades_cols].copy()
+    grades_df.columns = ['Student#', 'Student Name', 'Program Name', 'Program Grade']
+    
+    # Normalize and rename columns in attendance_df
+    attendance_df = normalize_and_rename_columns(attendance_df, 'attendance')
+    
+    # Keep only required columns: Student#, Student Name, Attended % to Date.
+    required_attendance_cols = []
+    for col in ['Student#', 'Student Name', 'Attended % to Date.']:
+        if col in attendance_df.columns:
+            required_attendance_cols.append(col)
+        else:
+            # Try to find similar column
+            for actual_col in attendance_df.columns:
+                if normalize_col_name(actual_col) == normalize_col_name(col):
+                    required_attendance_cols.append(actual_col)
+                    break
+    
+    if len(required_attendance_cols) < 3:
+        raise ValueError(f"Missing required columns in attendance sheet. Found: {list(attendance_df.columns)}, Required: Student#, Student Name, Attended % to Date.")
+    
+    # Select and rename columns
+    attendance_df = attendance_df[required_attendance_cols].copy()
+    attendance_df.columns = ['Student#', 'Student Name', 'Attended % to Date.']
+    
+    # Clean and standardize formatting
+    # Remove summary rows
+    grades_df = grades_df[~grades_df['Student Name'].astype(str).str.contains('Total|Summary', case=False, na=False)]
+    attendance_df = attendance_df[~attendance_df['Student Name'].astype(str).str.contains('Total|Summary', case=False, na=False)]
+    
+    # Remove rows with missing Student# or Student Name
+    grades_df = grades_df.dropna(subset=['Student#', 'Student Name'])
+    attendance_df = attendance_df.dropna(subset=['Student#', 'Student Name'])
+    
+    # Normalize Program Grade (remove %, convert to float 0-100)
+    grades_df['Program Grade'] = grades_df['Program Grade'].apply(normalize_pct)
+    
+    # Normalize Attended % to Date. (remove %, convert to float 0-100)
+    attendance_df['Attended % to Date.'] = attendance_df['Attended % to Date.'].apply(normalize_pct)
+    
+    # Standardize Student# to string (remove .0, strip whitespace)
+    grades_df['Student#'] = grades_df['Student#'].astype(str).str.strip().str.replace('.0', '', regex=False)
+    attendance_df['Student#'] = attendance_df['Student#'].astype(str).str.strip().str.replace('.0', '', regex=False)
+    
+    # Standardize Student Name
+    grades_df['Student Name'] = grades_df['Student Name'].astype(str).str.strip()
+    attendance_df['Student Name'] = attendance_df['Student Name'].astype(str).str.strip()
+    
+    # Rename to standardized column names
+    grades_df = grades_df.rename(columns={
+        'Student#': 'Student ID',
+        'Program Name': 'Program',
+        'Program Grade': 'Grade %'
+    })
+    
+    attendance_df = attendance_df.rename(columns={
+        'Student#': 'Student ID',
+        'Attended % to Date.': 'Attendance %'
+    })
+    
+    print(f"DEBUG: Simplified loading - Grades: {len(grades_df)} rows, Attendance: {len(attendance_df)} rows")
+    print(f"DEBUG: Grades columns: {list(grades_df.columns)}")
+    print(f"DEBUG: Attendance columns: {list(attendance_df.columns)}")
+    
+    return grades_df, attendance_df, name_hyperlinks
+
+
+def prepare_combined_dataset(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Merge grades and attendance data using outer join.
+    
+    Args:
+        grades_df: DataFrame with Student ID, Student Name, Program, Grade %
+        attendance_df: DataFrame with Student ID, Student Name, Attendance %
+    
+    Returns:
+        Merged DataFrame with all students
+    """
+    # Outer join to include students missing in one sheet
+    merged_df = pd.merge(
+        grades_df,
+        attendance_df,
+        on=['Student ID', 'Student Name'],
+        how='outer',
+        suffixes=('_grades', '_attendance')
+    )
+    
+    # Handle merged columns - prioritize non-null values
+    if 'Grade %_grades' in merged_df.columns and 'Grade %_attendance' in merged_df.columns:
+        merged_df['Grade %'] = merged_df['Grade %_grades'].fillna(merged_df['Grade %_attendance'])
+        merged_df = merged_df.drop(columns=['Grade %_grades', 'Grade %_attendance'])
+    elif 'Grade %_grades' in merged_df.columns:
+        merged_df['Grade %'] = merged_df['Grade %_grades']
+        merged_df = merged_df.drop(columns=['Grade %_grades'])
+    elif 'Grade %_attendance' in merged_df.columns:
+        merged_df['Grade %'] = merged_df['Grade %_attendance']
+        merged_df = merged_df.drop(columns=['Grade %_attendance'])
+    
+    if 'Attendance %_grades' in merged_df.columns and 'Attendance %_attendance' in merged_df.columns:
+        merged_df['Attendance %'] = merged_df['Attendance %_attendance'].fillna(merged_df['Attendance %_grades'])
+        merged_df = merged_df.drop(columns=['Attendance %_grades', 'Attendance %_attendance'])
+    elif 'Attendance %_grades' in merged_df.columns:
+        merged_df['Attendance %'] = merged_df['Attendance %_grades']
+        merged_df = merged_df.drop(columns=['Attendance %_grades'])
+    elif 'Attendance %_attendance' in merged_df.columns:
+        merged_df['Attendance %'] = merged_df['Attendance %_attendance']
+        merged_df = merged_df.drop(columns=['Attendance %_attendance'])
+    
+    if 'Program_grades' in merged_df.columns and 'Program_attendance' in merged_df.columns:
+        merged_df['Program'] = merged_df['Program_grades'].fillna(merged_df['Program_attendance'])
+        merged_df = merged_df.drop(columns=['Program_grades', 'Program_attendance'])
+    elif 'Program_grades' in merged_df.columns:
+        merged_df['Program'] = merged_df['Program_grades']
+        merged_df = merged_df.drop(columns=['Program_grades'])
+    elif 'Program_attendance' in merged_df.columns:
+        merged_df['Program'] = merged_df['Program_attendance']
+        merged_df = merged_df.drop(columns=['Program_attendance'])
+    
+    # Fill missing values gracefully
+    merged_df['Grade %'] = merged_df['Grade %'].fillna(0.0)
+    merged_df['Attendance %'] = merged_df['Attendance %'].fillna(0.0)
+    merged_df['Program'] = merged_df['Program'].fillna('Unknown')
+    
+    # Determine data status
+    merged_df['_has_grade'] = merged_df['Grade %'] > 0
+    merged_df['_has_attendance'] = merged_df['Attendance %'] > 0
+    
+    def determine_status(row):
+        if row['_has_grade'] and row['_has_attendance']:
+            return 'Complete'
+        elif row['_has_grade'] and not row['_has_attendance']:
+            return 'Missing Attendance'
+        elif not row['_has_grade'] and row['_has_attendance']:
+            return 'Missing Grade'
+        else:
+            return 'Missing Both'
+    
+    merged_df['data_status'] = merged_df.apply(determine_status, axis=1)
+    merged_df = merged_df.drop(columns=['_has_grade', '_has_attendance'])
+    
+    # Ensure Student ID and Student Name are strings
+    merged_df['Student ID'] = merged_df['Student ID'].astype(str)
+    merged_df['Student Name'] = merged_df['Student Name'].astype(str)
+    
+    print(f"DEBUG: Merged dataset: {len(merged_df)} rows")
+    print(f"DEBUG: Merged columns: {list(merged_df.columns)}")
+    
+    return merged_df
+
+
 def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, str]]:
     """
     Load Excel file and extract data from both sheets.

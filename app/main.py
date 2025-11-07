@@ -19,7 +19,12 @@ import numpy as np
 import traceback
 
 from app.models import StudentRiskResult, UploadResponse, EmailDraftRequest, EmailDraftResponse
-from app.parsers import load_excel, normalize_data, merge_data
+from app.parsers import load_refined_data, prepare_combined_dataset
+# Keep old functions for backward compatibility if needed
+try:
+    from app.parsers import load_excel, normalize_data, merge_data
+except ImportError:
+    pass
 from app.risk import simple_rule, train_or_fallback_score, get_risk_category, get_explanation
 from app.email_templates import generate_email_draft
 
@@ -178,9 +183,9 @@ async def upload_file(
         )
     
     try:
-        # Load and parse Excel
+        # Load and parse Excel using simplified refined data loader
         try:
-            grades_df, attendance_df, name_hyperlinks = load_excel(file_bytes)
+            grades_df, attendance_df, name_hyperlinks = load_refined_data(file_bytes)
         except Exception as e:
             error_msg = f"Error loading Excel file: {str(e)}"
             print(f"ERROR: {error_msg}")
@@ -189,34 +194,28 @@ async def upload_file(
             print(f"Traceback: {traceback.format_exc()}")
             raise HTTPException(status_code=400, detail=error_msg)
         
-        # Verify Student Name exists in both DataFrames
-        if 'Student Name' not in grades_df.columns:
-            print(f"ERROR: 'Student Name' missing in grades_df. Columns: {list(grades_df.columns)}")
+        # Verify required columns exist
+        required_grades_cols = ['Student ID', 'Student Name', 'Program', 'Grade %']
+        required_attendance_cols = ['Student ID', 'Student Name', 'Attendance %']
+        
+        missing_grades = [col for col in required_grades_cols if col not in grades_df.columns]
+        missing_attendance = [col for col in required_attendance_cols if col not in attendance_df.columns]
+        
+        if missing_grades:
             raise HTTPException(
                 status_code=400,
-                detail=f"'Student Name' column missing in grades sheet. Found columns: {list(grades_df.columns)}"
+                detail=f"Missing required columns in grades sheet: {missing_grades}. Found: {list(grades_df.columns)}"
             )
         
-        if 'Student Name' not in attendance_df.columns:
-            print(f"ERROR: 'Student Name' missing in attendance_df. Columns: {list(attendance_df.columns)}")
+        if missing_attendance:
             raise HTTPException(
                 status_code=400,
-                detail=f"'Student Name' column missing in attendance sheet. Found columns: {list(attendance_df.columns)}"
+                detail=f"Missing required columns in attendance sheet: {missing_attendance}. Found: {list(attendance_df.columns)}"
             )
         
-        # Normalize data
+        # Merge data using simplified merge function
         try:
-            grades_normalized, attendance_normalized = normalize_data(grades_df, attendance_df)
-        except Exception as e:
-            error_msg = f"Error normalizing data: {str(e)}"
-            print(f"ERROR: {error_msg}")
-            import traceback
-            print(f"Traceback: {traceback.format_exc()}")
-            raise HTTPException(status_code=400, detail=error_msg)
-        
-        # Merge data
-        try:
-            merged_df = merge_data(grades_normalized, attendance_normalized)
+            merged_df = prepare_combined_dataset(grades_df, attendance_df)
         except Exception as e:
             error_msg = f"Error merging data: {str(e)}"
             print(f"ERROR: {error_msg}")
@@ -299,29 +298,8 @@ async def upload_file(
         # Ensure index is reset to avoid serial number in output
         merged_df = merged_df.reset_index(drop=True)
         
-        # Standardize column names after merge to ensure consistent access
-        # This helps avoid confusion with suffixed columns (_grades, _attendance)
-        column_rename_map = {}
-        
-        # Standardize Student# - prioritize the merge key, then suffixed versions
-        if 'Student#' in merged_df.columns:
-            # Keep as is if it's the merge key
-            pass
-        elif 'Student#_grades' in merged_df.columns:
-            column_rename_map['Student#_grades'] = 'Student#'
-        elif 'Student#_attendance' in merged_df.columns:
-            column_rename_map['Student#_attendance'] = 'Student#'
-        
-        # Standardize Student Name - prioritize _grades, then _attendance, then base
-        if 'Student Name_grades' in merged_df.columns:
-            column_rename_map['Student Name_grades'] = 'Student Name'
-        elif 'Student Name_attendance' in merged_df.columns and 'Student Name' not in merged_df.columns:
-            column_rename_map['Student Name_attendance'] = 'Student Name'
-        
-        # Apply renaming
-        if column_rename_map:
-            merged_df = merged_df.rename(columns=column_rename_map)
-            print(f"DEBUG: Renamed columns after merge: {column_rename_map}")
+        # With simplified loading, columns are already standardized
+        # No need for column renaming - merged_df already has: Student ID, Student Name, Program, Grade %, Attendance %
         
         # Debug: Print column names to understand merge structure
         print(f"DEBUG: Merged DataFrame columns: {list(merged_df.columns)}")
@@ -347,25 +325,22 @@ async def upload_file(
                 for col in student_id_cols:
                     print(f"    {col}: {row.get(col)}")
             
-            # Extract Student# - After standardization, should be in 'Student#' column
+            # Extract Student ID - With simplified loading, should be in 'Student ID' column
             # IMPORTANT: Do NOT use DataFrame index - it's just a row number, not the Student ID
             student_id_val = None
             student_id_source = None
             
-            # After standardization, Student# should be the primary column
-            if 'Student#' in row.index and pd.notna(row.get('Student#')):
+            # With simplified loading, Student ID is the standardized column name
+            if 'Student ID' in row.index and pd.notna(row.get('Student ID')):
+                student_id_val = row.get('Student ID')
+                student_id_source = 'Student ID'
+            # Fallback for backward compatibility
+            elif 'Student#' in row.index and pd.notna(row.get('Student#')):
                 student_id_val = row.get('Student#')
                 student_id_source = 'Student#'
-            # Fallback to suffixed versions if standardization didn't work
-            elif 'Student#_grades' in row.index and pd.notna(row.get('Student#_grades')):
-                student_id_val = row.get('Student#_grades')
-                student_id_source = 'Student#_grades'
-            elif 'Student#_attendance' in row.index and pd.notna(row.get('Student#_attendance')):
-                student_id_val = row.get('Student#_attendance')
-                student_id_source = 'Student#_attendance'
             else:
                 # Try alternative column names
-                for col in ['Student ID', 'Student Number', 'student_id']:
+                for col in ['Student Number', 'student_id']:
                     if col in row.index and pd.notna(row.get(col)):
                         student_id_val = row.get(col)
                         student_id_source = col
@@ -418,22 +393,14 @@ async def upload_file(
                         print(f"  Student ID '{student_id_str}' is not numeric, but using it anyway")
                 student_id = student_id_str
             
-            # Extract Student Name - After standardization, should be in 'Student Name' column
-            # Priority: Student Name (standardized) > Student Name_grades > Student Name_attendance
+            # Extract Student Name - With simplified loading, should be in 'Student Name' column
             student_name_val = None
             student_name_source = None
             
-            # After standardization, Student Name should be the primary column
+            # With simplified loading, Student Name is the standardized column name
             if 'Student Name' in row.index and pd.notna(row.get('Student Name')):
                 student_name_val = row.get('Student Name')
                 student_name_source = 'Student Name'
-            # Fallback to suffixed versions if standardization didn't work
-            elif 'Student Name_grades' in row.index and pd.notna(row.get('Student Name_grades')):
-                student_name_val = row.get('Student Name_grades')
-                student_name_source = 'Student Name_grades'
-            elif 'Student Name_attendance' in row.index and pd.notna(row.get('Student Name_attendance')):
-                student_name_val = row.get('Student Name_attendance')
-                student_name_source = 'Student Name_attendance'
             else:
                 # Try alternative column names
                 for col in ['Name', 'student_name', 'Full Name']:
@@ -511,36 +478,25 @@ async def upload_file(
                 pass
             
             if row_idx < 5:  # Debug first 5 rows
-                print(f"  Student# value: {row.get('Student#', 'NOT FOUND')}")
+                print(f"  Student ID value: {row.get('Student ID', 'NOT FOUND')}")
                 print(f"  Student Name value: {row.get('Student Name', 'NOT FOUND')}")
                 print(f"  Final - Student ID: {student_id}, Student Name: {student_name}")
                 print(f"  Final - Student ID type: {type(student_id)}, Student Name type: {type(student_name)}")
                 print(f"  Final - Student ID value: '{student_id}', Student Name value: '{student_name}'")
             
-            # Handle Program Name - clean NaN values
-            program_name_val = row.get('Program Name', 'Unknown')
+            # Handle Program - clean NaN values (simplified loading uses 'Program' column)
+            program_name_val = row.get('Program', 'Unknown')
             if pd.isna(program_name_val) or str(program_name_val).strip().lower() in ['nan', 'none', '']:
                 program_name = 'Unknown'
             else:
                 program_name = str(program_name_val).strip()
             
             # Clean numeric values to ensure JSON compliance
-            grade_pct = clean_numeric_value(row.get('grade_pct', 0))
+            # With simplified loading, columns are 'Grade %' and 'Attendance %'
+            grade_pct = clean_numeric_value(row.get('Grade %', 0))
             
-            # Get attendance_pct - try multiple possible column names
-            attendance_pct = 0.0
-            if 'attendance_pct' in row.index:
-                attendance_pct = clean_numeric_value(row.get('attendance_pct', 0))
-            elif 'attendance_pct_attendance' in row.index:
-                attendance_pct = clean_numeric_value(row.get('attendance_pct_attendance', 0))
-            elif 'attendance_pct_grades' in row.index:
-                attendance_pct = clean_numeric_value(row.get('attendance_pct_grades', 0))
-            else:
-                # Try to find any column with attendance percentage
-                for col in row.index:
-                    if 'attended' in str(col).lower() and ('%' in str(col) or 'pct' in str(col).lower()):
-                        attendance_pct = clean_numeric_value(row.get(col, 0))
-                        break
+            # Get attendance percentage
+            attendance_pct = clean_numeric_value(row.get('Attendance %', 0))
             
             # Get data status
             data_status = str(row.get('data_status', 'Complete')).strip()
