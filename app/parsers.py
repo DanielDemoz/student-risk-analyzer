@@ -9,6 +9,41 @@ from openpyxl import load_workbook
 from openpyxl.cell.cell import Cell
 
 
+def _clean_header_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normalize DataFrame headers to remove hidden unicode, collapse spaces.
+    
+    Args:
+        df: DataFrame with potentially messy column names
+        
+    Returns:
+        DataFrame with cleaned column names
+    """
+    df.columns = (
+        df.columns
+        .map(lambda c: c.replace("\xa0", " "))       # remove NBSP
+        .map(lambda c: re.sub(r"\s+", " ", c))       # collapse spaces
+        .map(str.strip)
+    )
+    return df
+
+
+def _clean_name_series(s: pd.Series) -> pd.Series:
+    """
+    Normalize cell values for student names, handling hidden unicode and empty values.
+    
+    Args:
+        s: Series containing student names
+        
+    Returns:
+        Series with cleaned names (NaN for truly missing values)
+    """
+    s = s.astype(str).str.replace("\xa0", " ", regex=False)  # NBSP
+    s = s.str.strip()
+    s = s.replace({"": np.nan, "nan": np.nan, "None": np.nan, "NONE": np.nan}, regex=False)
+    return s
+
+
 def normalize_and_rename_columns(df: pd.DataFrame, sheet_type: str) -> pd.DataFrame:
     """
     Clean and standardize column names for both Grades and Attendance sheets.
@@ -1562,71 +1597,64 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
         print(f"After merge ({merge_method}): {len(merged)} rows")
         print(f"DEBUG: merged columns: {list(merged.columns)}")
     
-    # Handle Student Name - prefer grades, fallback to attendance
-    # CRITICAL: Both sheets have Student Name, so after merge we get Student Name_grades and Student Name_attendance
-    # We need to consolidate them properly, prioritizing grades but ensuring we don't lose any actual names
-    print(f"\n=== DEBUG: Consolidating Student Name ===")
-    print(f"Columns before consolidation: {[col for col in merged.columns if 'Name' in col or 'Student' in col]}")
+    # ============================================================
+    # COMPREHENSIVE STUDENT NAME FIX PATCH
+    # Handles: header normalization, suffix mismatches, unicode, coalescing
+    # Replaces old consolidation logic with robust, case-insensitive matching
+    # ============================================================
+    print(f"\n=== DEBUG: Applying comprehensive Student Name fix patch ===")
+    print(f"Columns before patch: {[col for col in merged.columns if 'Name' in col or 'Student' in col]}")
     
-    if 'Student Name_grades' in merged.columns and 'Student Name_attendance' in merged.columns:
-        print(f"Both Student Name columns exist - consolidating...")
-        print(f"Student Name_grades sample: {merged['Student Name_grades'].head(5).tolist()}")
-        print(f"Student Name_attendance sample: {merged['Student Name_attendance'].head(5).tolist()}")
-        
-        # Both exist - prefer grades, but use attendance if grades is empty/null/NaN
-        # Convert to string first to handle any type issues
-        merged['Student Name_grades'] = merged['Student Name_grades'].astype(str).str.strip()
-        merged['Student Name_attendance'] = merged['Student Name_attendance'].astype(str).str.strip()
-        
-        # Replace 'nan', 'None', empty strings with actual NaN for fillna to work
-        merged['Student Name_grades'] = merged['Student Name_grades'].replace(['nan', 'None', ''], pd.NA)
-        merged['Student Name_attendance'] = merged['Student Name_attendance'].replace(['nan', 'None', ''], pd.NA)
-        
-        # Consolidate: prefer grades, fallback to attendance
-        merged['Student Name'] = merged['Student Name_grades'].fillna(merged['Student Name_attendance'])
-        
-        # If still NaN, use the other column
-        mask = merged['Student Name'].isna()
-        merged.loc[mask, 'Student Name'] = merged.loc[mask, 'Student Name_attendance']
-        
-        # Convert back to string and clean up
-        merged['Student Name'] = merged['Student Name'].astype(str).str.strip()
-        
-        # Only set to 'Unknown' if BOTH columns were empty
-        both_empty = (merged['Student Name_grades'].isna() | (merged['Student Name_grades'] == '')) & \
-                     (merged['Student Name_attendance'].isna() | (merged['Student Name_attendance'] == ''))
-        merged.loc[both_empty, 'Student Name'] = 'Unknown'
-        
-        merged = merged.drop(columns=['Student Name_grades', 'Student Name_attendance'])
-        print(f"✅ Consolidated Student Name - sample: {merged['Student Name'].head(5).tolist()}")
-        print(f"   Valid names: {(merged['Student Name'] != 'Unknown').sum()}, Unknown: {(merged['Student Name'] == 'Unknown').sum()}")
-        
-    elif 'Student Name_grades' in merged.columns:
-        print(f"Only Student Name_grades exists - using it...")
-        merged['Student Name'] = merged['Student Name_grades'].astype(str).str.strip()
-        merged['Student Name'] = merged['Student Name'].replace(['nan', 'None', ''], 'Unknown')
-        merged = merged.drop(columns=['Student Name_grades'])
-        print(f"✅ Using Student Name from grades - sample: {merged['Student Name'].head(5).tolist()}")
-        
-    elif 'Student Name_attendance' in merged.columns:
-        print(f"Only Student Name_attendance exists - using it...")
-        merged['Student Name'] = merged['Student Name_attendance'].astype(str).str.strip()
-        merged['Student Name'] = merged['Student Name'].replace(['nan', 'None', ''], 'Unknown')
-        merged = merged.drop(columns=['Student Name_attendance'])
-        print(f"✅ Using Student Name from attendance - sample: {merged['Student Name'].head(5).tolist()}")
-        
-    elif 'Student Name' in merged.columns:
-        # Already consolidated, but clean it up
-        print(f"Student Name already exists - cleaning it up...")
-        merged['Student Name'] = merged['Student Name'].astype(str).str.strip()
-        merged['Student Name'] = merged['Student Name'].replace(['nan', 'None', ''], 'Unknown')
-        print(f"✅ Student Name already exists - sample: {merged['Student Name'].head(5).tolist()}")
-        
+    # 1) Ensure merged headers are clean
+    merged = _clean_header_cols(merged)
+    
+    # 2) Identify any columns that are student-name candidates (case- & suffix-agnostic)
+    name_cols = [c for c in merged.columns if re.fullmatch(r"(?i)student name(_.*)?", c)]
+    # If we also have a canonical column without suffix, prefer it first
+    name_cols = sorted(
+        name_cols,
+        key=lambda c: (
+            0 if re.fullmatch(r"(?i)student name$", c) else 1,
+            0 if re.search(r"(?i)_grade", c) else (1 if re.search(r"(?i)_att|_attendance", c) else 2)
+        )
+    )
+    
+    # 3) If no name columns detected, log for debugging
+    if not name_cols:
+        print("DEBUG: No name columns found before patch. Columns are:", list(merged.columns))
+    
+    # 4) Clean each candidate column's values
+    for c in name_cols:
+        merged[c] = _clean_name_series(merged[c])
+    
+    # 5) Coalesce across all candidate name columns (prefer unsuffixed, then _grade, then _attendance)
+    #    Use bfill row-wise to pick the first non-null
+    if name_cols:
+        coalesced = merged[name_cols].bfill(axis=1).iloc[:, 0]
+        merged["Student Name"] = _clean_name_series(coalesced).str.title()
     else:
-        # Last resort: create placeholder, but log warning
-        print(f"ERROR: No Student Name column found after merge! Creating placeholder.")
-        print(f"Available columns: {list(merged.columns)}")
-        merged['Student Name'] = 'Unknown'
+        # If no name columns found, check if Student Name already exists
+        if "Student Name" not in merged.columns:
+            merged["Student Name"] = pd.Series(np.nan, index=merged.index)
+    
+    # 6) If still missing, try fallback from alternative column names
+    if merged["Student Name"].isna().any():
+        # fallback: any alt spellings
+        alt_cols = [c for c in merged.columns if re.fullmatch(r"(?i)^name$|^student$", c) and c not in name_cols]
+        if alt_cols:
+            alt = merged[alt_cols].bfill(axis=1).iloc[:, 0]
+            merged.loc[merged["Student Name"].isna(), "Student Name"] = _clean_name_series(alt).str.title()
+    
+    # 7) Clean up the final Student Name column
+    merged["Student Name"] = _clean_name_series(merged["Student Name"])
+    
+    # 8) Debug counters to show what we found
+    unk_before = (merged["Student Name"].isna() | (merged["Student Name"].astype(str).str.lower() == "unknown")).sum()
+    print(f"DEBUG: Names missing/Unknown before final cleanup: {unk_before} / {len(merged)}")
+    
+    # ============================================================
+    # END COMPREHENSIVE STUDENT NAME FIX PATCH
+    # ============================================================
     
     print(f"=== END DEBUG: Student Name consolidation ===\n")
     
@@ -1743,11 +1771,33 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     
     # Remove duplicates by Student# (keep first occurrence)
     # This handles cases where a student appears multiple times
-    merged = merged.drop_duplicates(subset=['Student#'], keep='first')
+    # Handle both Student# and Student ID (depending on which was used for merge)
+    dedup_key = None
+    if 'Student#' in merged.columns:
+        dedup_key = 'Student#'
+    elif 'Student ID' in merged.columns:
+        dedup_key = 'Student ID'
+    
+    if dedup_key:
+        merged = merged.drop_duplicates(subset=[dedup_key], keep='first')
     
     print(f"After deduplication: {len(merged)} rows")
     print(f"DEBUG: Final merged shape: {merged.shape}")
-    print(f"DEBUG: Final merged Student# count: {merged['Student#'].nunique()}")
+    
+    # Final cleanup: Ensure Student Name is properly set (as last resort, set to Unknown if still NaN)
+    if "Student Name" in merged.columns:
+        merged["Student Name"] = merged["Student Name"].fillna("Unknown")
+        # Also handle string "Unknown" from previous logic
+        merged.loc[merged["Student Name"].astype(str).str.strip().str.lower() == "unknown", "Student Name"] = "Unknown"
+    
+    # Final debug counters
+    unk_final = (merged["Student Name"] == "Unknown").sum() if "Student Name" in merged.columns else len(merged)
+    print(f"DEBUG: Final Unknown names count: {unk_final} / {len(merged)}")
+    
+    if dedup_key:
+        print(f"DEBUG: Final merged {dedup_key} count: {merged[dedup_key].nunique()}")
+    if "Student Name" in merged.columns:
+        print(f"DEBUG: Final merged Student Name sample: {merged['Student Name'].head(5).tolist()}")
     
     return merged
 
