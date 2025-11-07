@@ -1548,47 +1548,72 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
         print(f"DEBUG: merged columns: {list(merged.columns)}")
     
     # Handle Student Name - prefer grades, fallback to attendance
-    # IMPORTANT: Ensure Student Name is always populated with actual names, never 'Unknown' unless truly missing
+    # CRITICAL: Both sheets have Student Name, so after merge we get Student Name_grades and Student Name_attendance
+    # We need to consolidate them properly, prioritizing grades but ensuring we don't lose any actual names
+    print(f"\n=== DEBUG: Consolidating Student Name ===")
+    print(f"Columns before consolidation: {[col for col in merged.columns if 'Name' in col or 'Student' in col]}")
+    
     if 'Student Name_grades' in merged.columns and 'Student Name_attendance' in merged.columns:
-        # Both exist - prefer grades, but use attendance if grades is empty/null
+        print(f"Both Student Name columns exist - consolidating...")
+        print(f"Student Name_grades sample: {merged['Student Name_grades'].head(5).tolist()}")
+        print(f"Student Name_attendance sample: {merged['Student Name_attendance'].head(5).tolist()}")
+        
+        # Both exist - prefer grades, but use attendance if grades is empty/null/NaN
+        # Convert to string first to handle any type issues
+        merged['Student Name_grades'] = merged['Student Name_grades'].astype(str).str.strip()
+        merged['Student Name_attendance'] = merged['Student Name_attendance'].astype(str).str.strip()
+        
+        # Replace 'nan', 'None', empty strings with actual NaN for fillna to work
+        merged['Student Name_grades'] = merged['Student Name_grades'].replace(['nan', 'None', ''], pd.NA)
+        merged['Student Name_attendance'] = merged['Student Name_attendance'].replace(['nan', 'None', ''], pd.NA)
+        
+        # Consolidate: prefer grades, fallback to attendance
         merged['Student Name'] = merged['Student Name_grades'].fillna(merged['Student Name_attendance'])
-        # Clean up: remove any remaining NaN values by using the other column
-        mask = merged['Student Name'].isna() | (merged['Student Name'].astype(str).str.strip() == '')
+        
+        # If still NaN, use the other column
+        mask = merged['Student Name'].isna()
         merged.loc[mask, 'Student Name'] = merged.loc[mask, 'Student Name_attendance']
+        
+        # Convert back to string and clean up
+        merged['Student Name'] = merged['Student Name'].astype(str).str.strip()
+        
+        # Only set to 'Unknown' if BOTH columns were empty
+        both_empty = (merged['Student Name_grades'].isna() | (merged['Student Name_grades'] == '')) & \
+                     (merged['Student Name_attendance'].isna() | (merged['Student Name_attendance'] == ''))
+        merged.loc[both_empty, 'Student Name'] = 'Unknown'
+        
         merged = merged.drop(columns=['Student Name_grades', 'Student Name_attendance'])
-        print(f"DEBUG: Consolidated Student Name from both sources - sample: {merged['Student Name'].head(5).tolist()}")
+        print(f"✅ Consolidated Student Name - sample: {merged['Student Name'].head(5).tolist()}")
+        print(f"   Valid names: {(merged['Student Name'] != 'Unknown').sum()}, Unknown: {(merged['Student Name'] == 'Unknown').sum()}")
+        
     elif 'Student Name_grades' in merged.columns:
-        merged['Student Name'] = merged['Student Name_grades']
+        print(f"Only Student Name_grades exists - using it...")
+        merged['Student Name'] = merged['Student Name_grades'].astype(str).str.strip()
+        merged['Student Name'] = merged['Student Name'].replace(['nan', 'None', ''], 'Unknown')
         merged = merged.drop(columns=['Student Name_grades'])
-        print(f"DEBUG: Using Student Name from grades - sample: {merged['Student Name'].head(5).tolist()}")
+        print(f"✅ Using Student Name from grades - sample: {merged['Student Name'].head(5).tolist()}")
+        
     elif 'Student Name_attendance' in merged.columns:
-        merged['Student Name'] = merged['Student Name_attendance']
+        print(f"Only Student Name_attendance exists - using it...")
+        merged['Student Name'] = merged['Student Name_attendance'].astype(str).str.strip()
+        merged['Student Name'] = merged['Student Name'].replace(['nan', 'None', ''], 'Unknown')
         merged = merged.drop(columns=['Student Name_attendance'])
-        print(f"DEBUG: Using Student Name from attendance - sample: {merged['Student Name'].head(5).tolist()}")
+        print(f"✅ Using Student Name from attendance - sample: {merged['Student Name'].head(5).tolist()}")
+        
     elif 'Student Name' in merged.columns:
         # Already consolidated, but clean it up
-        merged['Student Name'] = merged['Student Name'].fillna('Unknown')
-        print(f"DEBUG: Student Name already exists - sample: {merged['Student Name'].head(5).tolist()}")
+        print(f"Student Name already exists - cleaning it up...")
+        merged['Student Name'] = merged['Student Name'].astype(str).str.strip()
+        merged['Student Name'] = merged['Student Name'].replace(['nan', 'None', ''], 'Unknown')
+        print(f"✅ Student Name already exists - sample: {merged['Student Name'].head(5).tolist()}")
+        
     else:
         # Last resort: create placeholder, but log warning
-        print(f"WARNING: No Student Name column found after merge! Creating placeholder.")
+        print(f"ERROR: No Student Name column found after merge! Creating placeholder.")
         print(f"Available columns: {list(merged.columns)}")
         merged['Student Name'] = 'Unknown'
     
-    # Final cleanup: ensure Student Name is a string and not empty
-    merged['Student Name'] = merged['Student Name'].astype(str).str.strip()
-    # Replace empty strings with 'Unknown' (but only if truly empty)
-    merged.loc[merged['Student Name'] == '', 'Student Name'] = 'Unknown'
-    
-    # Debug: Check if we still have any 'Unknown' values
-    unknown_count = (merged['Student Name'] == 'Unknown').sum()
-    if unknown_count > 0:
-        print(f"WARNING: {unknown_count} rows have 'Unknown' as Student Name after consolidation")
-        # Show sample of rows with Unknown names
-        unknown_rows = merged[merged['Student Name'] == 'Unknown']
-        if len(unknown_rows) > 0:
-            print(f"Sample rows with Unknown names:")
-            print(unknown_rows[['Student#'] + [col for col in unknown_rows.columns if 'Student' in col]].head(3))
+    print(f"=== END DEBUG: Student Name consolidation ===\n")
     
     # Handle Program Name - prefer grades, fallback to attendance
     if 'Program Name' in merged.columns:
