@@ -649,9 +649,26 @@ def load_refined_data(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Di
     if len(required_grades_cols) < 4:
         raise ValueError(f"Missing required columns in grades sheet. Found: {list(grades_df.columns)}, Required: Student#, Student Name, Program Name, Program Grade")
     
-    # Select and rename columns
-    grades_df = grades_df[required_grades_cols].copy()
-    grades_df.columns = ['Student#', 'Student Name', 'Program Name', 'Program Grade']
+    # CRITICAL: Based on user's Excel structure:
+    # Grades: Column 1 = Student#, Column 2 = Student Name, Column 3 = Program Name, Column 4 = Program Grade
+    # Attendance: Column 1 = Student#, Column 2 = Student Name, Column 3 = Attended % to Date.
+    # We MUST ensure column 2 is Student Name in both sheets
+    
+    # Select and rename columns - use column positions if names don't match
+    if all(col in grades_df.columns for col in required_grades_cols):
+        grades_df = grades_df[required_grades_cols].copy()
+        grades_df.columns = ['Student#', 'Student Name', 'Program Name', 'Program Grade']
+        print(f"✅ Grades: Selected columns by name: {list(grades_df.columns)}")
+    else:
+        # Use column positions (Column 1=Student#, Column 2=Student Name, Column 3=Program Name, Column 4=Program Grade)
+        if len(grades_df.columns) >= 4:
+            print(f"INFO: Grades - Using column positions (Column 1=Student#, Column 2=Student Name, Column 3=Program Name, Column 4=Program Grade)")
+            print(f"  Current columns: {list(grades_df.columns)}")
+            grades_df = grades_df.iloc[:, :4].copy()  # Select first 4 columns
+            grades_df.columns = ['Student#', 'Student Name', 'Program Name', 'Program Grade']
+            print(f"  ✅ Renamed by position: {list(grades_df.columns)}")
+        else:
+            raise ValueError(f"Grades sheet must have at least 4 columns. Found {len(grades_df.columns)}: {list(grades_df.columns)}")
     
     # Normalize and rename columns in attendance_df
     attendance_df = normalize_and_rename_columns(attendance_df, 'attendance')
@@ -668,12 +685,51 @@ def load_refined_data(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Di
                     required_attendance_cols.append(actual_col)
                     break
     
-    if len(required_attendance_cols) < 3:
-        raise ValueError(f"Missing required columns in attendance sheet. Found: {list(attendance_df.columns)}, Required: Student#, Student Name, Attended % to Date.")
+    if len(required_attendance_cols) >= 3:
+        # All required columns found by name
+        attendance_df = attendance_df[required_attendance_cols].copy()
+        attendance_df.columns = ['Student#', 'Student Name', 'Attended % to Date.']
+        print(f"✅ Attendance: Selected columns by name: {list(attendance_df.columns)}")
+    else:
+        # Use column positions (Column 1=Student#, Column 2=Student Name, Column 3=Attended % to Date.)
+        if len(attendance_df.columns) >= 3:
+            print(f"INFO: Attendance - Using column positions (Column 1=Student#, Column 2=Student Name, Column 3=Attended % to Date.)")
+            print(f"  Current columns: {list(attendance_df.columns)}")
+            attendance_df = attendance_df.iloc[:, :3].copy()  # Select first 3 columns
+            attendance_df.columns = ['Student#', 'Student Name', 'Attended % to Date.']
+            print(f"  ✅ Renamed by position: {list(attendance_df.columns)}")
+        else:
+            raise ValueError(f"Attendance sheet must have at least 3 columns. Found {len(attendance_df.columns)}: {list(attendance_df.columns)}")
     
-    # Select and rename columns
-    attendance_df = attendance_df[required_attendance_cols].copy()
-    attendance_df.columns = ['Student#', 'Student Name', 'Attended % to Date.']
+    # CRITICAL VERIFICATION: Ensure column 2 is Student Name in both DataFrames
+    if len(grades_df.columns) >= 2 and grades_df.columns[1] != 'Student Name':
+        print(f"⚠️ WARNING: Grades column 2 is '{grades_df.columns[1]}', not 'Student Name'. Forcing rename.")
+        grades_df.columns.values[1] = 'Student Name'
+    
+    if len(attendance_df.columns) >= 2 and attendance_df.columns[1] != 'Student Name':
+        print(f"⚠️ WARNING: Attendance column 2 is '{attendance_df.columns[1]}', not 'Student Name'. Forcing rename.")
+        attendance_df.columns.values[1] = 'Student Name'
+    
+    # Verify Student Name column has actual data (not IDs)
+    print(f"\n=== VERIFICATION: Student Name in Column 2 ===")
+    if 'Student Name' in grades_df.columns:
+        sample_names = grades_df['Student Name'].head(5).tolist()
+        print(f"Grades - Student Name sample (first 5): {sample_names}")
+        # Check if names are numeric (IDs) - this would indicate misalignment
+        numeric_count = sum(1 for name in sample_names if isinstance(name, (int, float)) or (isinstance(name, str) and name.replace('.', '').isdigit()))
+        if numeric_count > 0:
+            print(f"⚠️ WARNING: {numeric_count} out of 5 Student Names in Grades are numeric (IDs)! This indicates column misalignment.")
+        print(f"Grades - Student Name non-null: {grades_df['Student Name'].notna().sum()} / {len(grades_df)}")
+    
+    if 'Student Name' in attendance_df.columns:
+        sample_names = attendance_df['Student Name'].head(5).tolist()
+        print(f"Attendance - Student Name sample (first 5): {sample_names}")
+        # Check if names are numeric (IDs) - this would indicate misalignment
+        numeric_count = sum(1 for name in sample_names if isinstance(name, (int, float)) or (isinstance(name, str) and name.replace('.', '').isdigit()))
+        if numeric_count > 0:
+            print(f"⚠️ WARNING: {numeric_count} out of 5 Student Names in Attendance are numeric (IDs)! This indicates column misalignment.")
+        print(f"Attendance - Student Name non-null: {attendance_df['Student Name'].notna().sum()} / {len(attendance_df)}")
+    print(f"=== END VERIFICATION ===\n")
     
     # Clean and standardize formatting
     # Remove summary rows
