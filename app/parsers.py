@@ -1441,42 +1441,46 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     merge_method = None
     
     if 'Student#' in grades_df.columns and 'Student#' in attendance_df.columns:
-        # Convert Student# to string for consistent matching (handles inconsistent formats)
+        # Use simple approach like user's working script
+        print(f"DEBUG: Before merge - grades_df shape: {grades_df.shape}, attendance_df shape: {attendance_df.shape}")
+        print(f"DEBUG: Before merge - grades_df Student# sample: {grades_df['Student#'].head(5).tolist()}")
+        print(f"DEBUG: Before merge - attendance_df Student# sample: {attendance_df['Student#'].head(5).tolist()}")
+        print(f"DEBUG: Before merge - grades_df Student Name sample: {grades_df['Student Name'].head(5).tolist() if 'Student Name' in grades_df.columns else 'NOT FOUND'}")
+        print(f"DEBUG: Before merge - attendance_df Student Name sample: {attendance_df['Student Name'].head(5).tolist() if 'Student Name' in attendance_df.columns else 'NOT FOUND'}")
+        
+        # Convert Student# to string for both sheets (like user's script)
         grades_student_id = safe_get_series(grades_df, 'Student#')
-        grades_df['Student#'] = grades_student_id.astype(str).str.strip().str.replace('.0', '', regex=False)
+        grades_df['Student#'] = grades_student_id.astype(str).str.strip()
         
         attendance_student_id = safe_get_series(attendance_df, 'Student#')
-        attendance_df['Student#'] = attendance_student_id.astype(str).str.strip().str.replace('.0', '', regex=False)
+        attendance_df['Student#'] = attendance_student_id.astype(str).str.strip()
         
-        # Remove rows with invalid Student# (empty or "nan")
-        grades_df_clean = grades_df[~grades_df['Student#'].isin(['', 'nan', 'None', '0'])].copy()
-        attendance_df_clean = attendance_df[~attendance_df['Student#'].isin(['', 'nan', 'None', '0'])].copy()
-        
-        print(f"Merging: grades_df={len(grades_df_clean)} rows, attendance_df={len(attendance_df_clean)} rows")
-        print(f"DEBUG: grades_df Student# sample: {grades_df_clean['Student#'].head(5).tolist()}")
-        print(f"DEBUG: attendance_df Student# sample: {attendance_df_clean['Student#'].head(5).tolist()}")
-        
-        # Try merge by Student# (INNER JOIN - only students in both sheets)
+        # Perform INNER JOIN on Student# (like user's script)
         merged_by_id = pd.merge(
-            grades_df_clean,
-            attendance_df_clean,
+            grades_df,
+            attendance_df,
             on='Student#',
-            how='inner',  # Changed from 'outer' to 'inner' - only include students in both sheets
-            suffixes=('_grades', '_attendance'),
-            indicator=True
+            how='inner',  # INNER JOIN - only include students in both sheets
+            suffixes=('_grades', '_attendance')
         )
         
-        # Check how many matches we got
-        match_stats = merged_by_id['_merge'].value_counts()
-        print(f"DEBUG: Merge by Student# results: {match_stats.to_dict()}")
+        print(f"✅ Merge by Student# completed: {len(merged_by_id)} rows matched")
+        print(f"DEBUG: After merge - merged columns: {list(merged_by_id.columns)}")
+        print(f"DEBUG: After merge - unique Student# count: {merged_by_id['Student#'].nunique()}")
         
-        # If we have reasonable matches, use Student# merge
-        if len(merged_by_id) > 0 and match_stats.get('both', 0) > 0:
-            merged = merged_by_id.drop(columns=['_merge'])
+        # Check Student Name columns after merge
+        if 'Student Name_grades' in merged_by_id.columns:
+            print(f"DEBUG: Student Name_grades sample (first 5): {merged_by_id['Student Name_grades'].head(5).tolist()}")
+        if 'Student Name_attendance' in merged_by_id.columns:
+            print(f"DEBUG: Student Name_attendance sample (first 5): {merged_by_id['Student Name_attendance'].head(5).tolist()}")
+        
+        # Use the merged result
+        if len(merged_by_id) > 0:
+            merged = merged_by_id.copy()
             merge_method = 'Student#'
-            print(f"Using merge by Student#: {len(merged)} rows")
+            print(f"✅ Using merge by Student# (INNER JOIN): {len(merged)} rows matched")
         else:
-            print("WARNING: Student# merge resulted in few/no matches, trying Student Name merge")
+            print("WARNING: Student# merge resulted in 0 matches, trying Student Name merge")
     
     # Fallback to Student Name merge (or use it if Student# doesn't exist)
     if merged is None:
