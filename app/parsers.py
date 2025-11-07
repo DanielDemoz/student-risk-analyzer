@@ -1579,22 +1579,50 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     
     # --- CRITICAL: Consolidate Student Name immediately after merge ---
     # Prefer Student Name from grades sheet, fallback to attendance
+    # IMPORTANT: Check if names are actually names (not numeric IDs) before consolidating
     if 'Student Name_grade' in merged.columns and 'Student Name_att' in merged.columns:
-        # Both exist - prefer grade, fallback to attendance
-        merged['Student Name'] = merged['Student Name_grade'].fillna(merged['Student Name_att'])
+        # Check if either column contains actual names (not all numeric IDs)
+        grade_is_numeric = merged['Student Name_grade'].astype(str).str.match(r'^\d+\.?\d*$', na=False).all()
+        att_is_numeric = merged['Student Name_att'].astype(str).str.match(r'^\d+\.?\d*$', na=False).all()
+        
+        print(f"DEBUG: Student Name_grade is all numeric: {grade_is_numeric}")
+        print(f"DEBUG: Student Name_att is all numeric: {att_is_numeric}")
+        
+        # If both are numeric, we have a problem - the Excel file has misaligned columns
+        if grade_is_numeric and att_is_numeric:
+            print(f"⚠️ WARNING: Both Student Name columns contain numeric IDs! Excel file may have misaligned columns.")
+            print(f"  Student Name_grade sample: {merged['Student Name_grade'].head(3).tolist()}")
+            print(f"  Student Name_att sample: {merged['Student Name_att'].head(3).tolist()}")
+            # Still consolidate, but we'll need to handle this in the recovery logic
+            merged['Student Name'] = merged['Student Name_grade'].fillna(merged['Student Name_att'])
+        else:
+            # At least one has actual names - prefer the one with names
+            if not grade_is_numeric:
+                merged['Student Name'] = merged['Student Name_grade'].fillna(merged['Student Name_att'])
+            else:
+                # grades is numeric, but attendance has names
+                merged['Student Name'] = merged['Student Name_att'].fillna(merged['Student Name_grade'])
+        
         # Clean up: remove any remaining NaN by using the other column
         mask = merged['Student Name'].isna() | (merged['Student Name'].astype(str).str.strip() == '')
         merged.loc[mask, 'Student Name'] = merged.loc[mask, 'Student Name_att']
-        # Drop the suffixed columns
-        merged = merged.drop(columns=['Student Name_grade', 'Student Name_att'], errors='ignore')
+        
+        # DON'T drop the suffixed columns yet - keep them for recovery if needed
+        # We'll drop them after validation
         print(f"✅ Consolidated Student Name from both sources")
     elif 'Student Name_grade' in merged.columns:
+        # Check if it's numeric
+        is_numeric = merged['Student Name_grade'].astype(str).str.match(r'^\d+\.?\d*$', na=False).all()
+        if is_numeric:
+            print(f"⚠️ WARNING: Student Name_grade contains numeric IDs! Excel file may have misaligned columns.")
         merged['Student Name'] = merged['Student Name_grade']
-        merged = merged.drop(columns=['Student Name_grade'], errors='ignore')
         print(f"✅ Using Student Name from grades")
     elif 'Student Name_att' in merged.columns:
+        # Check if it's numeric
+        is_numeric = merged['Student Name_att'].astype(str).str.match(r'^\d+\.?\d*$', na=False).all()
+        if is_numeric:
+            print(f"⚠️ WARNING: Student Name_att contains numeric IDs! Excel file may have misaligned columns.")
         merged['Student Name'] = merged['Student Name_att']
-        merged = merged.drop(columns=['Student Name_att'], errors='ignore')
         print(f"✅ Using Student Name from attendance")
     
     # Clean Student Name: remove NaN, empty strings, and invalid values
@@ -1608,13 +1636,41 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
         if numeric_mask.any():
             print(f"⚠️ WARNING: {numeric_mask.sum()} Student Names appear to be numeric IDs (misalignment detected)!")
             print(f"Sample numeric 'names': {merged.loc[numeric_mask, 'Student Name'].head(3).tolist()}")
+            
             # Try to recover from the other source if available
+            # Check if we still have the suffixed columns (we kept them for this purpose)
             if 'Student Name_grade' in merged.columns or 'Student Name_att' in merged.columns:
                 print("Attempting to recover names from alternative source...")
-                # This shouldn't happen if consolidation worked, but handle it
-                # For now, just log the issue
+                recovered = 0
+                for idx in merged.loc[numeric_mask].index:
+                    # Try the other suffixed column
+                    if 'Student Name_grade' in merged.columns and 'Student Name_att' in merged.columns:
+                        # Try the one we didn't use
+                        alt_name = merged.loc[idx, 'Student Name_att'] if merged.loc[idx, 'Student Name'] == merged.loc[idx, 'Student Name_grade'] else merged.loc[idx, 'Student Name_grade']
+                        if pd.notna(alt_name):
+                            alt_str = str(alt_name).strip()
+                            if not alt_str.isdigit() and alt_str.lower() not in ['nan', 'none', '']:
+                                merged.loc[idx, 'Student Name'] = alt_str
+                                recovered += 1
+                    elif 'Student Name_att' in merged.columns:
+                        alt_name = merged.loc[idx, 'Student Name_att']
+                        if pd.notna(alt_name):
+                            alt_str = str(alt_name).strip()
+                            if not alt_str.isdigit() and alt_str.lower() not in ['nan', 'none', '']:
+                                merged.loc[idx, 'Student Name'] = alt_str
+                                recovered += 1
+                
+                if recovered > 0:
+                    print(f"✅ Recovered {recovered} names from alternative source")
+                else:
+                    print(f"⚠️ Could not recover names - both sources contain numeric IDs")
+            
+            # After recovery attempt, drop the suffixed columns
+            merged = merged.drop(columns=['Student Name_grade', 'Student Name_att'], errors='ignore')
         else:
             print(f"✅ Student Name validation passed - no numeric IDs detected")
+            # Safe to drop suffixed columns now
+            merged = merged.drop(columns=['Student Name_grade', 'Student Name_att'], errors='ignore')
         
         print(f"DEBUG: Final Student Name sample (first 5): {merged['Student Name'].head(5).tolist()}")
         print(f"DEBUG: Student Name statistics - Valid: {(merged['Student Name'] != 'Unknown').sum()}, Unknown: {(merged['Student Name'] == 'Unknown').sum()}")
