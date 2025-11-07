@@ -711,17 +711,22 @@ def load_refined_data(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Di
         attendance_df.columns.values[1] = 'Student Name'
     
     # CRITICAL: Check if columns are swapped in Excel (Column 1 has names, Column 2 has IDs)
-    # Verify Student Name column has actual data (not IDs)
+    # CRITICAL: Verify Student Name column has actual data (not IDs or empty)
     print(f"\n=== VERIFICATION: Student Name in Column 2 ===")
     if 'Student Name' in grades_df.columns and 'Student#' in grades_df.columns:
-        sample_names = grades_df['Student Name'].head(5).tolist()
-        sample_ids = grades_df['Student#'].head(5).tolist()
-        print(f"Grades - Student# (column 1) sample: {sample_ids}")
-        print(f"Grades - Student Name (column 2) sample: {sample_names}")
+        sample_names = grades_df['Student Name'].head(10).tolist()
+        sample_ids = grades_df['Student#'].head(10).tolist()
+        print(f"Grades - Student# (column 1) sample (first 10): {sample_ids}")
+        print(f"Grades - Student Name (column 2) sample (first 10): {sample_names}")
         
         # Check if names are numeric (IDs) - this would indicate columns are swapped
-        numeric_name_count = sum(1 for name in sample_names if isinstance(name, (int, float)) or (isinstance(name, str) and name.replace('.', '').isdigit()))
-        non_numeric_id_count = sum(1 for id_val in sample_ids if not (isinstance(id_val, (int, float)) or (isinstance(id_val, str) and str(id_val).replace('.', '').isdigit())))
+        numeric_name_count = sum(1 for name in sample_names if isinstance(name, (int, float)) or (isinstance(name, str) and str(name).replace('.', '').replace('-', '').isdigit()))
+        non_numeric_id_count = sum(1 for id_val in sample_ids if pd.notna(id_val) and not (isinstance(id_val, (int, float)) or (isinstance(id_val, str) and str(id_val).replace('.', '').replace('-', '').isdigit())))
+        
+        # Also check for empty/Unknown names
+        empty_name_count = sum(1 for name in sample_names if pd.isna(name) or str(name).strip().lower() in ['', 'nan', 'none', 'unknown'])
+        
+        print(f"Grades - Analysis: {numeric_name_count} numeric names, {non_numeric_id_count} non-numeric IDs, {empty_name_count} empty/Unknown names")
         
         if numeric_name_count > 0 and non_numeric_id_count > 0:
             print(f"⚠️ CRITICAL: {numeric_name_count} Student Names are numeric (IDs) AND {non_numeric_id_count} Student# values are non-numeric!")
@@ -735,18 +740,35 @@ def load_refined_data(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Di
             print(f"  ✅ Swapped - New Student# sample: {grades_df['Student#'].head(3).tolist()}")
             print(f"  ✅ Swapped - New Student Name sample: {grades_df['Student Name'].head(3).tolist()}")
         elif numeric_name_count > 0:
-            print(f"⚠️ WARNING: {numeric_name_count} out of 5 Student Names in Grades are numeric (IDs)! This indicates column misalignment.")
+            print(f"⚠️ WARNING: {numeric_name_count} out of 10 Student Names in Grades are numeric (IDs)! This indicates column misalignment.")
+        elif empty_name_count == len(sample_names):
+            print(f"⚠️ CRITICAL: All {empty_name_count} Student Names are empty/Unknown! This indicates names are not being read correctly.")
+            print(f"  Checking if names might be in a different column or format...")
+            # Try to find names in other columns
+            for col_idx, col_name in enumerate(grades_df.columns):
+                if col_name not in ['Student#', 'Student Name']:
+                    sample_vals = grades_df[col_name].head(5).tolist()
+                    non_numeric_count = sum(1 for val in sample_vals if pd.notna(val) and not (isinstance(val, (int, float)) or (isinstance(val, str) and str(val).replace('.', '').replace('-', '').isdigit())))
+                    if non_numeric_count > 0:
+                        print(f"  Found potential names in column '{col_name}' (index {col_idx}): {sample_vals[:3]}")
+        
         print(f"Grades - Student Name non-null: {grades_df['Student Name'].notna().sum()} / {len(grades_df)}")
+        print(f"Grades - Student Name non-empty: {(grades_df['Student Name'].astype(str).str.strip() != '').sum()} / {len(grades_df)}")
     
     if 'Student Name' in attendance_df.columns and 'Student#' in attendance_df.columns:
-        sample_names = attendance_df['Student Name'].head(5).tolist()
-        sample_ids = attendance_df['Student#'].head(5).tolist()
-        print(f"Attendance - Student# (column 1) sample: {sample_ids}")
-        print(f"Attendance - Student Name (column 2) sample: {sample_names}")
+        sample_names = attendance_df['Student Name'].head(10).tolist()
+        sample_ids = attendance_df['Student#'].head(10).tolist()
+        print(f"Attendance - Student# (column 1) sample (first 10): {sample_ids}")
+        print(f"Attendance - Student Name (column 2) sample (first 10): {sample_names}")
         
         # Check if names are numeric (IDs) - this would indicate columns are swapped
-        numeric_name_count = sum(1 for name in sample_names if isinstance(name, (int, float)) or (isinstance(name, str) and name.replace('.', '').isdigit()))
-        non_numeric_id_count = sum(1 for id_val in sample_ids if not (isinstance(id_val, (int, float)) or (isinstance(id_val, str) and str(id_val).replace('.', '').isdigit())))
+        numeric_name_count = sum(1 for name in sample_names if isinstance(name, (int, float)) or (isinstance(name, str) and str(name).replace('.', '').replace('-', '').isdigit()))
+        non_numeric_id_count = sum(1 for id_val in sample_ids if pd.notna(id_val) and not (isinstance(id_val, (int, float)) or (isinstance(id_val, str) and str(id_val).replace('.', '').replace('-', '').isdigit())))
+        
+        # Also check for empty/Unknown names
+        empty_name_count = sum(1 for name in sample_names if pd.isna(name) or str(name).strip().lower() in ['', 'nan', 'none', 'unknown'])
+        
+        print(f"Attendance - Analysis: {numeric_name_count} numeric names, {non_numeric_id_count} non-numeric IDs, {empty_name_count} empty/Unknown names")
         
         if numeric_name_count > 0 and non_numeric_id_count > 0:
             print(f"⚠️ CRITICAL: {numeric_name_count} Student Names are numeric (IDs) AND {non_numeric_id_count} Student# values are non-numeric!")
@@ -760,8 +782,20 @@ def load_refined_data(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Di
             print(f"  ✅ Swapped - New Student# sample: {attendance_df['Student#'].head(3).tolist()}")
             print(f"  ✅ Swapped - New Student Name sample: {attendance_df['Student Name'].head(3).tolist()}")
         elif numeric_name_count > 0:
-            print(f"⚠️ WARNING: {numeric_name_count} out of 5 Student Names in Attendance are numeric (IDs)! This indicates column misalignment.")
+            print(f"⚠️ WARNING: {numeric_name_count} out of 10 Student Names in Attendance are numeric (IDs)! This indicates column misalignment.")
+        elif empty_name_count == len(sample_names):
+            print(f"⚠️ CRITICAL: All {empty_name_count} Student Names are empty/Unknown! This indicates names are not being read correctly.")
+            print(f"  Checking if names might be in a different column or format...")
+            # Try to find names in other columns
+            for col_idx, col_name in enumerate(attendance_df.columns):
+                if col_name not in ['Student#', 'Student Name']:
+                    sample_vals = attendance_df[col_name].head(5).tolist()
+                    non_numeric_count = sum(1 for val in sample_vals if pd.notna(val) and not (isinstance(val, (int, float)) or (isinstance(val, str) and str(val).replace('.', '').replace('-', '').isdigit())))
+                    if non_numeric_count > 0:
+                        print(f"  Found potential names in column '{col_name}' (index {col_idx}): {sample_vals[:3]}")
+        
         print(f"Attendance - Student Name non-null: {attendance_df['Student Name'].notna().sum()} / {len(attendance_df)}")
+        print(f"Attendance - Student Name non-empty: {(attendance_df['Student Name'].astype(str).str.strip() != '').sum()} / {len(attendance_df)}")
     print(f"=== END VERIFICATION ===\n")
     
     # Clean and standardize formatting
