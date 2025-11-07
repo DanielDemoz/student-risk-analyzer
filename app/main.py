@@ -189,43 +189,11 @@ async def upload_file(
             print(f"Traceback: {traceback.format_exc()}")
             raise HTTPException(status_code=400, detail=error_msg)
         
-        # Select only required columns after loading
-        # Grades: Student#, Student Name, Program Name, current overall Program Grade
-        grades_required = []
-        for col_name in ['Student#', 'Student Name', 'Program Name', 'current overall Program Grade']:
-            if col_name in grades_df.columns:
-                grades_required.append(col_name)
-            else:
-                # Try to find similar column
-                for actual_col in grades_df.columns:
-                    if 'program' in actual_col.lower() and 'grade' in actual_col.lower():
-                        if 'program name' not in actual_col.lower():
-                            grades_required.append(actual_col)
-                            break
-        
-        if len(grades_required) < 4:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Missing required columns in grades sheet. Found: {list(grades_df.columns)}, Required: Student#, Student Name, Program Name, Program Grade"
-            )
-        
-        # Keep only required columns
-        grades_df = grades_df[grades_required].copy()
-        
-        # Attendance: Student#, Student Name, Attended % to Date.
-        attendance_required = []
-        for col_name in ['Student#', 'Student Name', 'Attended % to Date.']:
-            if col_name in attendance_df.columns:
-                attendance_required.append(col_name)
-        
-        if len(attendance_required) < 3:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Missing required columns in attendance sheet. Found: {list(attendance_df.columns)}, Required: Student#, Student Name, Attended % to Date."
-            )
-        
-        # Keep only required columns
-        attendance_df = attendance_df[attendance_required].copy()
+        # DO NOT filter columns here - let normalize_and_rename_columns handle it
+        # The normalization function will ensure all required columns exist
+        # We just need to verify they exist after normalization
+        print(f"DEBUG: Before normalization - grades_df columns: {list(grades_df.columns)}")
+        print(f"DEBUG: Before normalization - attendance_df columns: {list(attendance_df.columns)}")
         
         # Normalize data (convert percentages, etc.)
         try:
@@ -419,34 +387,53 @@ async def upload_file(
                         print(f"  Student ID '{student_id_str}' is not numeric, but using it anyway")
                 student_id = student_id_str
             
-            # Extract Student Name - handle merge suffixes (_grades, _attendance)
-            # Priority: Student Name_grades > Student Name_attendance > Student Name
+            # Extract Student Name - AFTER merge, Student Name should already be consolidated by merge_data
+            # Priority: Student Name (consolidated) > Student Name_grades > Student Name_attendance
             student_name_val = None
             student_name_source = None
             
-            if 'Student Name_grades' in row.index and pd.notna(row.get('Student Name_grades')):
-                student_name_val = row.get('Student Name_grades')
-                student_name_source = 'Student Name_grades'
-            elif 'Student Name_attendance' in row.index and pd.notna(row.get('Student Name_attendance')):
-                student_name_val = row.get('Student Name_attendance')
-                student_name_source = 'Student Name_attendance'
-            elif 'Student Name' in row.index and pd.notna(row.get('Student Name')):
+            # First check for consolidated Student Name (this should exist after merge_data)
+            if 'Student Name' in row.index:
                 student_name_val = row.get('Student Name')
                 student_name_source = 'Student Name'
-            else:
-                # Try alternative column names
+                if row_idx < 5 and (pd.isna(student_name_val) or str(student_name_val).strip().lower() in ['nan', 'none', '']):
+                    print(f"  WARNING: Student Name column exists but is empty/null: '{student_name_val}'")
+            
+            # Fallback to suffixed versions if consolidated column doesn't exist or is empty
+            if (student_name_val is None or pd.isna(student_name_val) or str(student_name_val).strip().lower() in ['nan', 'none', '']) and 'Student Name_grades' in row.index:
+                student_name_val = row.get('Student Name_grades')
+                student_name_source = 'Student Name_grades'
+                if row_idx < 5:
+                    print(f"  Using Student Name from grades suffix: '{student_name_val}'")
+            
+            if (student_name_val is None or pd.isna(student_name_val) or str(student_name_val).strip().lower() in ['nan', 'none', '']) and 'Student Name_attendance' in row.index:
+                student_name_val = row.get('Student Name_attendance')
+                student_name_source = 'Student Name_attendance'
+                if row_idx < 5:
+                    print(f"  Using Student Name from attendance suffix: '{student_name_val}'")
+            
+            # Last resort: try alternative column names
+            if student_name_val is None or pd.isna(student_name_val) or str(student_name_val).strip().lower() in ['nan', 'none', '']:
                 for col in ['Name', 'student_name', 'Full Name']:
                     if col in row.index and pd.notna(row.get(col)):
-                        student_name_val = row.get(col)
-                        student_name_source = col
-                        break
+                        alt_val = row.get(col)
+                        if str(alt_val).strip().lower() not in ['nan', 'none', '']:
+                            student_name_val = alt_val
+                            student_name_source = col
+                            if row_idx < 5:
+                                print(f"  Found Student Name in alternative column '{col}': '{student_name_val}'")
+                            break
             
+            # Final check and assignment
             if student_name_val is None or pd.isna(student_name_val) or str(student_name_val).strip().lower() in ['nan', 'none', '']:
                 student_name = 'Unknown'
                 if row_idx < 5:
-                    print(f"  WARNING: No Student Name found in row {row_idx}")
+                    print(f"  ERROR: No Student Name found in row {row_idx} from any source!")
+                    print(f"    Available columns: {[col for col in row.index if 'name' in col.lower() or 'student' in col.lower()]}")
             else:
                 student_name = str(student_name_val).strip()
+                if row_idx < 5:
+                    print(f"  ✅ Extracted Student Name from '{student_name_source}': '{student_name}'")
             
             # Final safety check: if Student Name looks like a number (ID), it might be misaligned
             # Only swap if we're CERTAIN they're swapped (both conditions must be true):
