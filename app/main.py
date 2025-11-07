@@ -294,17 +294,42 @@ async def upload_file(
         # No need for column renaming - merged_df already has: Student ID, Student Name, Program, Grade %, Attendance %
         
         # Debug: Print column names to understand merge structure
+        # After merge_data, Student Name should be consolidated into a single column
+        print(f"\n=== DEBUG: After merge_data ===")
         print(f"DEBUG: Merged DataFrame columns: {list(merged_df.columns)}")
         print(f"DEBUG: Merged DataFrame shape: {merged_df.shape}")
         if len(merged_df) > 0:
             print(f"DEBUG: First row sample columns: {list(merged_df.iloc[0].index)}")
             print(f"DEBUG: First row Student#: {merged_df.iloc[0].get('Student#', 'NOT FOUND')}")
             print(f"DEBUG: First row Student Name: {merged_df.iloc[0].get('Student Name', 'NOT FOUND')}")
-            # Check for suffixed columns
-            student_name_cols = [col for col in merged_df.columns if 'Student Name' in col]
+            # Check for Student Name columns
+            student_name_cols = [col for col in merged_df.columns if 'Student Name' in col or 'Name' in col]
             student_id_cols = [col for col in merged_df.columns if 'Student#' in col or 'Student ID' in col]
             print(f"DEBUG: Student Name columns found: {student_name_cols}")
             print(f"DEBUG: Student ID columns found: {student_id_cols}")
+            
+            # Check if Student Name column has actual values (not all Unknown)
+            if 'Student Name' in merged_df.columns:
+                student_names = merged_df['Student Name'].astype(str)
+                unknown_count = (student_names == 'Unknown').sum()
+                empty_count = (student_names.str.strip() == '').sum()
+                valid_count = len(merged_df) - unknown_count - empty_count
+                print(f"DEBUG: Student Name statistics - Total: {len(merged_df)}, Valid: {valid_count}, Unknown: {unknown_count}, Empty: {empty_count}")
+                if valid_count > 0:
+                    valid_names = student_names[student_names.str.strip() != '']
+                    valid_names = valid_names[valid_names != 'Unknown']
+                    print(f"DEBUG: Sample Valid Student Names (first 10): {valid_names.head(10).tolist()}")
+                if unknown_count > 0:
+                    print(f"WARNING: {unknown_count} rows have 'Unknown' as Student Name!")
+                    # Show first few rows with Unknown names
+                    unknown_rows = merged_df[merged_df['Student Name'].astype(str) == 'Unknown']
+                    if len(unknown_rows) > 0:
+                        print(f"DEBUG: First 3 rows with Unknown names:")
+                        for idx, (_, row) in enumerate(unknown_rows.head(3).iterrows()):
+                            print(f"  Row {idx}: Student#={row.get('Student#', 'N/A')}, Student Name={row.get('Student Name', 'N/A')}")
+            else:
+                print(f"ERROR: 'Student Name' column NOT found in merged DataFrame!")
+        print(f"=== END DEBUG: After merge_data ===\n")
         
         results = []
         for row_idx, (_, row) in enumerate(merged_df.iterrows()):
