@@ -1729,26 +1729,106 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     elif 'Attended % to Date.' in attendance_df.columns:
         attendance_cols_to_merge.append('Attended % to Date.')
     
-    # Perform merge with explicit suffixes
-    merged = pd.merge(
-        grades_df,
-        attendance_df[attendance_cols_to_merge],
-        on='Student#',
-        how='inner',  # INNER JOIN - only students in both sheets
-        suffixes=('_grade', '_att')
-    )
+    # CRITICAL: Check if Student# values match between sheets before merging
+    print(f"\n=== PRE-MERGE MATCHING ANALYSIS ===")
+    grades_unique_ids = set(grades_df['Student#'].astype(str).str.strip().str.replace('.0', '', regex=False).tolist())
+    attendance_unique_ids = set(attendance_df['Student#'].astype(str).str.strip().str.replace('.0', '', regex=False).tolist())
     
-    print(f"✅ Merge by Student# completed: {len(merged)} rows matched")
+    matching_ids = grades_unique_ids.intersection(attendance_unique_ids)
+    grades_only = grades_unique_ids - attendance_unique_ids
+    attendance_only = attendance_unique_ids - grades_unique_ids
+    
+    print(f"Grades unique Student# count: {len(grades_unique_ids)}")
+    print(f"Attendance unique Student# count: {len(attendance_unique_ids)}")
+    print(f"Matching Student# count: {len(matching_ids)}")
+    print(f"Grades-only Student# count: {len(grades_only)}")
+    print(f"Attendance-only Student# count: {len(attendance_only)}")
+    
+    if len(matching_ids) == 0:
+        print(f"⚠️ CRITICAL: No matching Student# values found between sheets!")
+        print(f"  Grades Student# sample (first 10): {list(grades_unique_ids)[:10]}")
+        print(f"  Attendance Student# sample (first 10): {list(attendance_unique_ids)[:10]}")
+        print(f"  Attempting to merge by Student Name instead...")
+        
+        # Try merging by Student Name as fallback
+        if 'Student Name' in grades_df.columns and 'Student Name' in attendance_df.columns:
+            # Clean Student Name for matching
+            grades_df['Student Name_clean'] = grades_df['Student Name'].astype(str).str.strip().str.lower()
+            attendance_df['Student Name_clean'] = attendance_df['Student Name'].astype(str).str.strip().str.lower()
+            
+            merged = pd.merge(
+                grades_df,
+                attendance_df[attendance_cols_to_merge + ['Student Name_clean']],
+                left_on='Student Name_clean',
+                right_on='Student Name_clean',
+                how='inner',
+                suffixes=('_grade', '_att')
+            )
+            
+            # Drop the temporary clean column
+            merged = merged.drop(columns=['Student Name_clean'], errors='ignore')
+            
+            print(f"✅ Merge by Student Name completed: {len(merged)} rows matched")
+            
+            # After merging by name, we need to consolidate Student# from both sides
+            if 'Student#_grade' in merged.columns and 'Student#_att' in merged.columns:
+                # Prefer the one that's not empty and is a valid ID
+                def consolidate_student_id(row):
+                    grade_id = str(row.get('Student#_grade', '')).strip().replace('.0', '')
+                    att_id = str(row.get('Student#_att', '')).strip().replace('.0', '')
+                    
+                    # Prefer valid IDs (>= 1000)
+                    if is_valid_student_id(grade_id):
+                        return grade_id
+                    elif is_valid_student_id(att_id):
+                        return att_id
+                    elif grade_id and grade_id != 'nan':
+                        return grade_id
+                    elif att_id and att_id != 'nan':
+                        return att_id
+                    else:
+                        return 'Unknown'
+                
+                merged['Student#'] = merged.apply(consolidate_student_id, axis=1)
+                merged = merged.drop(columns=['Student#_grade', 'Student#_att'], errors='ignore')
+            elif 'Student#_grade' in merged.columns:
+                merged['Student#'] = merged['Student#_grade']
+                merged = merged.drop(columns=['Student#_grade'], errors='ignore')
+            elif 'Student#_att' in merged.columns:
+                merged['Student#'] = merged['Student#_att']
+                merged = merged.drop(columns=['Student#_att'], errors='ignore')
+        else:
+            raise ValueError(f"Cannot merge: No matching Student# values and Student Name columns missing. Grades columns: {list(grades_df.columns)}, Attendance columns: {list(attendance_df.columns)}")
+    else:
+        # Normal merge by Student#
+        print(f"✅ Found {len(matching_ids)} matching Student# values. Proceeding with merge...")
+        
+        # Perform merge with explicit suffixes
+        merged = pd.merge(
+            grades_df,
+            attendance_df[attendance_cols_to_merge],
+            on='Student#',
+            how='inner',  # INNER JOIN - only students in both sheets
+            suffixes=('_grade', '_att')
+        )
+        
+        print(f"✅ Merge by Student# completed: {len(merged)} rows matched")
+    
+    print(f"=== END PRE-MERGE MATCHING ANALYSIS ===\n")
+    
     print(f"DEBUG: After merge - merged columns: {list(merged.columns)}")
     print(f"DEBUG: After merge - unique Student# count: {merged['Student#'].nunique()}")
     
     # CRITICAL: Validate Student# after merge - ensure it contains actual IDs, not row indices
-    merged_student_id_sample = merged['Student#'].head(10).tolist()
-    print(f"DEBUG: After merge - Student# sample (first 10): {merged_student_id_sample}")
-    merged_small_ids = sum(1 for val in merged_student_id_sample if not is_valid_student_id(val))
-    if merged_small_ids > 0:
-        print(f"⚠️ ERROR: {merged_small_ids} Student# values after merge are < 1000 (row indices)! This should not happen!")
-        print(f"  This indicates the merge corrupted the Student# column. Check merge logic.")
+    if len(merged) > 0:
+        merged_student_id_sample = merged['Student#'].head(10).tolist()
+        print(f"DEBUG: After merge - Student# sample (first 10): {merged_student_id_sample}")
+        merged_small_ids = sum(1 for val in merged_student_id_sample if not is_valid_student_id(val))
+        if merged_small_ids > 0:
+            print(f"⚠️ ERROR: {merged_small_ids} Student# values after merge are < 1000 (row indices)! This should not happen!")
+            print(f"  This indicates the merge corrupted the Student# column. Check merge logic.")
+    else:
+        print(f"⚠️ WARNING: Merge resulted in 0 rows! This should not happen after validation.")
     
     # Check Student Name columns after merge
     if 'Student Name_grade' in merged.columns:
