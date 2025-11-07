@@ -1117,12 +1117,11 @@ def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str,
         else:
             attendance_df['Campus Login URL'] = None
     
-    # Validate required columns (case-insensitive, after normalization)
-    # Note: Student# is now optional (will be created if missing)
+    # Validate required columns - only check for the columns we actually need
+    # Grades: Student#, Student Name, Program Name, current overall Program Grade
+    # Attendance: Student#, Student Name, Attended % to Date.
     required_grades_cols = ['Student Name', 'Program Name', 'current overall Program Grade']
-    required_attendance_cols = ['Student Name', 'Scheduled Hours to Date', 
-                                'Attended Hours to Date', 'Attended % to Date.', 
-                                'Missed Hours to Date', '% Missed', 'Missed Minus Excused to date']
+    required_attendance_cols = ['Student Name', 'Attended % to Date.']
     
     # Check for column name variations (case-insensitive, handle whitespace, dots, %)
     # Normalize column names for comparison
@@ -1231,7 +1230,7 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
         print(f"WARNING: Grade column not found. Available columns: {list(grades_normalized.columns)}")
         grades_normalized['grade_pct'] = 0.0
     
-    # Normalize Attendance sheet
+    # Normalize Attendance sheet - only process required columns
     attendance_normalized = attendance_df.copy()
 
     # Preserve Campus Login URL column if it exists
@@ -1314,33 +1313,16 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
                 break
         
         if not found_col:
-            # Column not found - try to calculate from hours
-            print("DEBUG: 'Attended % to Date.' column not found, trying to calculate from hours")
-            if 'Attended Hours to Date' in attendance_normalized.columns and 'Scheduled Hours to Date' in attendance_normalized.columns:
-                # Calculate attendance percentage from hours
-                scheduled_hours = attendance_normalized['Scheduled Hours to Date']
-                attended_hours = attendance_normalized['Attended Hours to Date']
-                
-                print(f"DEBUG: Scheduled Hours sample: {scheduled_hours.head(3).tolist()}")
-                print(f"DEBUG: Attended Hours sample: {attended_hours.head(3).tolist()}")
-                
-                # Calculate percentage, handling division by zero
-                attendance_normalized['attendance_pct'] = (
-                    (attended_hours / scheduled_hours.replace(0, np.nan) * 100.0)
-                    .replace([np.inf, -np.inf, np.nan], 0.0)
-                    .clip(0.0, 100.0)
-                )
-                print(f"DEBUG: Calculated attendance_pct from hours - Sample: {attendance_normalized['attendance_pct'].head(3).tolist()}")
-            else:
-                # Last resort: set to 0
-                print("DEBUG: Could not find hours columns either, setting attendance_pct to 0")
-                attendance_normalized['attendance_pct'] = 0.0
+            # Column not found - last resort: set to 0
+            print("DEBUG: 'Attended % to Date.' column not found, setting attendance_pct to 0")
+            attendance_normalized['attendance_pct'] = 0.0
     
-    # Extract missed_pct from normalized "% Missed" column
-    if '% Missed' in attendance_normalized.columns:
-        attendance_normalized['missed_pct'] = attendance_normalized['% Missed']
-    else:
-        attendance_normalized['missed_pct'] = 0.0
+    # Normalize the attendance_pct value (ensure it's 0-100 range)
+    if 'attendance_pct' in attendance_normalized.columns:
+        attendance_normalized['attendance_pct'] = attendance_normalized['attendance_pct'].apply(normalize_pct)
+    
+    # Set missed_pct to 0 since we're not using it in simplified version
+    attendance_normalized['missed_pct'] = 0.0
     
     # Debug: Print sample data to verify transformations
     if 'Student Name' in attendance_normalized.columns:
@@ -1358,9 +1340,9 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
 
 def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Merge grades and attendance data.
+    Merge grades and attendance data using INNER JOIN.
     First tries merging by Student#, then falls back to Student Name if Student# is inconsistent.
-    Uses outer join to include ALL students from both sheets.
+    Only includes students present in BOTH sheets.
     """
     print(f"DEBUG: merge_data called - grades_df shape: {grades_df.shape}, columns: {list(grades_df.columns)}")
     print(f"DEBUG: merge_data called - attendance_df shape: {attendance_df.shape}, columns: {list(attendance_df.columns)}")

@@ -19,12 +19,7 @@ import numpy as np
 import traceback
 
 from app.models import StudentRiskResult, UploadResponse, EmailDraftRequest, EmailDraftResponse
-from app.parsers import load_refined_data, prepare_combined_dataset
-# Keep old functions for backward compatibility if needed
-try:
-    from app.parsers import load_excel, normalize_data, merge_data
-except ImportError:
-    pass
+from app.parsers import load_excel, normalize_data, merge_data
 from app.risk import simple_rule, train_or_fallback_score, get_risk_category, get_explanation
 from app.email_templates import generate_email_draft
 
@@ -183,9 +178,9 @@ async def upload_file(
         )
     
     try:
-        # Load and parse Excel using simplified refined data loader
+        # Load and parse Excel - use original functions but only read required columns
         try:
-            grades_df, attendance_df, name_hyperlinks = load_refined_data(file_bytes)
+            grades_df, attendance_df, name_hyperlinks = load_excel(file_bytes)
         except Exception as e:
             error_msg = f"Error loading Excel file: {str(e)}"
             print(f"ERROR: {error_msg}")
@@ -194,28 +189,57 @@ async def upload_file(
             print(f"Traceback: {traceback.format_exc()}")
             raise HTTPException(status_code=400, detail=error_msg)
         
-        # Verify required columns exist
-        required_grades_cols = ['Student ID', 'Student Name', 'Program', 'Grade %']
-        required_attendance_cols = ['Student ID', 'Student Name', 'Attendance %']
+        # Select only required columns after loading
+        # Grades: Student#, Student Name, Program Name, current overall Program Grade
+        grades_required = []
+        for col_name in ['Student#', 'Student Name', 'Program Name', 'current overall Program Grade']:
+            if col_name in grades_df.columns:
+                grades_required.append(col_name)
+            else:
+                # Try to find similar column
+                for actual_col in grades_df.columns:
+                    if 'program' in actual_col.lower() and 'grade' in actual_col.lower():
+                        if 'program name' not in actual_col.lower():
+                            grades_required.append(actual_col)
+                            break
         
-        missing_grades = [col for col in required_grades_cols if col not in grades_df.columns]
-        missing_attendance = [col for col in required_attendance_cols if col not in attendance_df.columns]
-        
-        if missing_grades:
+        if len(grades_required) < 4:
             raise HTTPException(
                 status_code=400,
-                detail=f"Missing required columns in grades sheet: {missing_grades}. Found: {list(grades_df.columns)}"
+                detail=f"Missing required columns in grades sheet. Found: {list(grades_df.columns)}, Required: Student#, Student Name, Program Name, Program Grade"
             )
         
-        if missing_attendance:
+        # Keep only required columns
+        grades_df = grades_df[grades_required].copy()
+        
+        # Attendance: Student#, Student Name, Attended % to Date.
+        attendance_required = []
+        for col_name in ['Student#', 'Student Name', 'Attended % to Date.']:
+            if col_name in attendance_df.columns:
+                attendance_required.append(col_name)
+        
+        if len(attendance_required) < 3:
             raise HTTPException(
                 status_code=400,
-                detail=f"Missing required columns in attendance sheet: {missing_attendance}. Found: {list(attendance_df.columns)}"
+                detail=f"Missing required columns in attendance sheet. Found: {list(attendance_df.columns)}, Required: Student#, Student Name, Attended % to Date."
             )
         
-        # Merge data using simplified merge function
+        # Keep only required columns
+        attendance_df = attendance_df[attendance_required].copy()
+        
+        # Normalize data (convert percentages, etc.)
         try:
-            merged_df = prepare_combined_dataset(grades_df, attendance_df)
+            grades_normalized, attendance_normalized = normalize_data(grades_df, attendance_df)
+        except Exception as e:
+            error_msg = f"Error normalizing data: {str(e)}"
+            print(f"ERROR: {error_msg}")
+            import traceback
+            print(f"Traceback: {traceback.format_exc()}")
+            raise HTTPException(status_code=400, detail=error_msg)
+        
+        # Merge data using INNER JOIN
+        try:
+            merged_df = merge_data(grades_normalized, attendance_normalized)
         except Exception as e:
             error_msg = f"Error merging data: {str(e)}"
             print(f"ERROR: {error_msg}")
