@@ -342,15 +342,25 @@ async def upload_file(
                 for col in student_id_cols:
                     print(f"    {col}: {row.get(col)}")
             
-            # Extract Student# - handle merge suffixes (_grades, _attendance)
+            # Extract Student ID - handle merge suffixes (_grades, _attendance)
+            # NOTE: normalize_data() renames Student# to Student ID, so check Student ID first
             # IMPORTANT: Do NOT use DataFrame index - it's just a row number, not the Student ID
             student_id_val = None
             student_id_source = None
             
-            # Priority: Student# (merge key) > Student#_grades > Student#_attendance
-            if 'Student#' in row.index and pd.notna(row.get('Student#')):
+            # Priority: Student ID (from normalize_data) > Student# (legacy) > suffixed versions
+            if 'Student ID' in row.index and pd.notna(row.get('Student ID')):
+                student_id_val = row.get('Student ID')
+                student_id_source = 'Student ID'
+            elif 'Student#' in row.index and pd.notna(row.get('Student#')):
                 student_id_val = row.get('Student#')
                 student_id_source = 'Student#'
+            elif 'Student ID_grades' in row.index and pd.notna(row.get('Student ID_grades')):
+                student_id_val = row.get('Student ID_grades')
+                student_id_source = 'Student ID_grades'
+            elif 'Student ID_attendance' in row.index and pd.notna(row.get('Student ID_attendance')):
+                student_id_val = row.get('Student ID_attendance')
+                student_id_source = 'Student ID_attendance'
             elif 'Student#_grades' in row.index and pd.notna(row.get('Student#_grades')):
                 student_id_val = row.get('Student#_grades')
                 student_id_source = 'Student#_grades'
@@ -359,7 +369,7 @@ async def upload_file(
                 student_id_source = 'Student#_attendance'
             else:
                 # Try alternative column names
-                for col in ['Student ID', 'Student Number', 'student_id']:
+                for col in ['Student Number', 'student_id']:
                     if col in row.index and pd.notna(row.get(col)):
                         student_id_val = row.get(col)
                         student_id_source = col
