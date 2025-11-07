@@ -349,22 +349,24 @@ async def upload_file(
                 for col in student_id_cols:
                     print(f"    {col}: {row.get(col)}")
             
-            # Extract Student ID - With simplified loading, should be in 'Student ID' column
+            # Extract Student# - handle merge suffixes (_grades, _attendance)
             # IMPORTANT: Do NOT use DataFrame index - it's just a row number, not the Student ID
             student_id_val = None
             student_id_source = None
             
-            # With simplified loading, Student ID is the standardized column name
-            if 'Student ID' in row.index and pd.notna(row.get('Student ID')):
-                student_id_val = row.get('Student ID')
-                student_id_source = 'Student ID'
-            # Fallback for backward compatibility
-            elif 'Student#' in row.index and pd.notna(row.get('Student#')):
+            # Priority: Student# (merge key) > Student#_grades > Student#_attendance
+            if 'Student#' in row.index and pd.notna(row.get('Student#')):
                 student_id_val = row.get('Student#')
                 student_id_source = 'Student#'
+            elif 'Student#_grades' in row.index and pd.notna(row.get('Student#_grades')):
+                student_id_val = row.get('Student#_grades')
+                student_id_source = 'Student#_grades'
+            elif 'Student#_attendance' in row.index and pd.notna(row.get('Student#_attendance')):
+                student_id_val = row.get('Student#_attendance')
+                student_id_source = 'Student#_attendance'
             else:
                 # Try alternative column names
-                for col in ['Student Number', 'student_id']:
+                for col in ['Student ID', 'Student Number', 'student_id']:
                     if col in row.index and pd.notna(row.get(col)):
                         student_id_val = row.get(col)
                         student_id_source = col
@@ -417,12 +419,18 @@ async def upload_file(
                         print(f"  Student ID '{student_id_str}' is not numeric, but using it anyway")
                 student_id = student_id_str
             
-            # Extract Student Name - With simplified loading, should be in 'Student Name' column
+            # Extract Student Name - handle merge suffixes (_grades, _attendance)
+            # Priority: Student Name_grades > Student Name_attendance > Student Name
             student_name_val = None
             student_name_source = None
             
-            # With simplified loading, Student Name is the standardized column name
-            if 'Student Name' in row.index and pd.notna(row.get('Student Name')):
+            if 'Student Name_grades' in row.index and pd.notna(row.get('Student Name_grades')):
+                student_name_val = row.get('Student Name_grades')
+                student_name_source = 'Student Name_grades'
+            elif 'Student Name_attendance' in row.index and pd.notna(row.get('Student Name_attendance')):
+                student_name_val = row.get('Student Name_attendance')
+                student_name_source = 'Student Name_attendance'
+            elif 'Student Name' in row.index and pd.notna(row.get('Student Name')):
                 student_name_val = row.get('Student Name')
                 student_name_source = 'Student Name'
             else:
@@ -502,25 +510,25 @@ async def upload_file(
                 pass
             
             if row_idx < 5:  # Debug first 5 rows
-                print(f"  Student ID value: {row.get('Student ID', 'NOT FOUND')}")
+                print(f"  Student# value: {row.get('Student#', 'NOT FOUND')}")
                 print(f"  Student Name value: {row.get('Student Name', 'NOT FOUND')}")
                 print(f"  Final - Student ID: {student_id}, Student Name: {student_name}")
                 print(f"  Final - Student ID type: {type(student_id)}, Student Name type: {type(student_name)}")
                 print(f"  Final - Student ID value: '{student_id}', Student Name value: '{student_name}'")
             
-            # Handle Program - clean NaN values (simplified loading uses 'Program' column)
-            program_name_val = row.get('Program', 'Unknown')
+            # Handle Program Name - clean NaN values
+            program_name_val = row.get('Program Name', 'Unknown')
             if pd.isna(program_name_val) or str(program_name_val).strip().lower() in ['nan', 'none', '']:
                 program_name = 'Unknown'
             else:
                 program_name = str(program_name_val).strip()
             
             # Clean numeric values to ensure JSON compliance
-            # With simplified loading, columns are 'Grade %' and 'Attendance %'
-            grade_pct = clean_numeric_value(row.get('Grade %', 0))
+            # Use grade_pct and attendance_pct columns (created by normalize_data)
+            grade_pct = clean_numeric_value(row.get('grade_pct', 0))
             
             # Get attendance percentage
-            attendance_pct = clean_numeric_value(row.get('Attendance %', 0))
+            attendance_pct = clean_numeric_value(row.get('attendance_pct', 0))
             
             # Get data status
             data_status = str(row.get('data_status', 'Complete')).strip()
