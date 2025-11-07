@@ -1172,6 +1172,14 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
     """
     # Normalize Grades sheet
     grades_normalized = grades_df.copy()
+    
+    # CRITICAL: Ensure Student Name is preserved before any processing
+    if 'Student Name' not in grades_normalized.columns:
+        print(f"ERROR: 'Student Name' missing in grades_df before normalization!")
+        print(f"Available columns: {list(grades_normalized.columns)}")
+        raise ValueError(f"'Student Name' column missing in grades DataFrame. Available columns: {list(grades_normalized.columns)}")
+    
+    print(f"DEBUG: normalize_data - grades_df has Student Name: {grades_normalized['Student Name'].head(3).tolist() if len(grades_normalized) > 0 else 'EMPTY'}")
 
     # Find Student# column (case-insensitive)
     student_id_col = None
@@ -1232,6 +1240,14 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
     
     # Normalize Attendance sheet - only process required columns
     attendance_normalized = attendance_df.copy()
+    
+    # CRITICAL: Ensure Student Name is preserved before any processing
+    if 'Student Name' not in attendance_normalized.columns:
+        print(f"ERROR: 'Student Name' missing in attendance_df before normalization!")
+        print(f"Available columns: {list(attendance_normalized.columns)}")
+        raise ValueError(f"'Student Name' column missing in attendance DataFrame. Available columns: {list(attendance_normalized.columns)}")
+    
+    print(f"DEBUG: normalize_data - attendance_df has Student Name: {attendance_normalized['Student Name'].head(3).tolist() if len(attendance_normalized) > 0 else 'EMPTY'}")
 
     # Preserve Campus Login URL column if it exists
     campus_login_url_col = None
