@@ -490,9 +490,12 @@ async def upload_file(
                                 student_id = student_name  # Use the name value as the ID
                                 
                                 # Try to find the actual Student Name in other columns
+                                # IMPORTANT: Check suffixed columns first (they might still exist if consolidation didn't drop them)
                                 found_real_name = False
-                                for col in row.index:
-                                    if 'name' in col.lower() and 'student' in col.lower() and col != student_name_source:
+                                
+                                # Priority 1: Check suffixed Student Name columns (from merge)
+                                for col in ['Student Name_grade', 'Student Name_att', 'Student Name_grades', 'Student Name_attendance']:
+                                    if col in row.index:
                                         alt_val = row.get(col)
                                         if pd.notna(alt_val):
                                             alt_str = str(alt_val).strip()
@@ -503,16 +506,34 @@ async def upload_file(
                                                 found_real_name = True
                                                 break
                                 
-                                # If we couldn't find a real name, check if temp_id is a valid name
+                                # Priority 2: Check any other column with 'name' in it
                                 if not found_real_name:
-                                    # temp_id might actually be a name if it's not numeric
+                                    for col in row.index:
+                                        if 'name' in col.lower() and 'student' in col.lower() and col != student_name_source:
+                                            alt_val = row.get(col)
+                                            if pd.notna(alt_val):
+                                                alt_str = str(alt_val).strip()
+                                                # If it's not all digits and not empty, it might be the actual name
+                                                if not alt_str.isdigit() and alt_str.lower() not in ['nan', 'none', '']:
+                                                    print(f"  Found actual Student Name in '{col}': {alt_str}")
+                                                    student_name = alt_str
+                                                    found_real_name = True
+                                                    break
+                                
+                                # Priority 3: Check if temp_id is a valid name (non-numeric)
+                                if not found_real_name:
                                     if not temp_id.isdigit() and temp_id.lower() not in ['nan', 'none', '']:
                                         student_name = temp_id
                                         print(f"  Using swapped Student ID as name: {student_name}")
-                                    else:
-                                        # Last resort: keep the numeric ID as the name (better than Unknown)
-                                        print(f"  WARNING: Could not find actual name. Keeping numeric ID '{student_name}' as name (better than Unknown)")
-                                        # Don't set to Unknown - keep the ID as the name
+                                        found_real_name = True
+                                
+                                # Last resort: If we still can't find a name, check if we can look up by Student ID
+                                if not found_real_name:
+                                    # The issue is that the Excel file itself might have misaligned columns
+                                    # In this case, we should set to Unknown rather than keeping the numeric ID
+                                    print(f"  ERROR: Could not find actual Student Name for Student ID '{student_id}'. The Excel file may have misaligned columns.")
+                                    print(f"    Available columns with 'name' or 'student': {[col for col in row.index if 'name' in col.lower() or 'student' in col.lower()]}")
+                                    student_name = 'Unknown'  # Better to show Unknown than a numeric ID
                         except (ValueError, TypeError):
                             # Student ID is not numeric, so don't swap
                             pass
