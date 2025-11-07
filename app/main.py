@@ -331,6 +331,58 @@ async def upload_file(
                 print(f"ERROR: 'Student Name' column NOT found in merged DataFrame!")
         print(f"=== END DEBUG: After merge_data ===\n")
         
+        # CRITICAL: Check merged DataFrame Student Name column BEFORE processing
+        # The numbers 66, 103, 129 are NOT in Excel files - they're being generated somewhere
+        print(f"\n=== PRE-PROCESSING VALIDATION: Student Name in merged DataFrame ===")
+        if 'Student Name' in merged_df.columns:
+            student_name_sample = merged_df['Student Name'].head(20).tolist()
+            print(f"Student Name column sample (first 20): {student_name_sample}")
+            
+            # Check if any values are small numbers (row indices)
+            small_number_count = 0
+            row_index_matches = 0
+            for idx, name_val in enumerate(student_name_sample):
+                if pd.notna(name_val):
+                    name_str = str(name_val).strip()
+                    try:
+                        if name_str.isdigit():
+                            name_num = int(float(name_str))
+                            if name_num < 1000:
+                                small_number_count += 1
+                                if name_num == idx:
+                                    row_index_matches += 1
+                                    print(f"  ⚠️ Row {idx}: Student Name '{name_val}' matches row index!")
+                    except (ValueError, TypeError):
+                        pass
+            
+            if small_number_count > 0:
+                print(f"⚠️ WARNING: {small_number_count} Student Names are small numbers (< 1000) - likely row indices!")
+                print(f"  {row_index_matches} of them match their row index exactly - this confirms they're row indices!")
+                print(f"  This means the Student Name column in merged_df contains row indices instead of actual names!")
+                print(f"  Attempting to recover names from suffixed columns...")
+                
+                # Try to recover from suffixed columns
+                if 'Student Name_grade' in merged_df.columns:
+                    grade_name_sample = merged_df['Student Name_grade'].head(10).tolist()
+                    print(f"  Student Name_grade sample: {grade_name_sample}")
+                    # Check if these are actual names (not all numeric)
+                    valid_names = sum(1 for n in grade_name_sample if pd.notna(n) and not (isinstance(n, (int, float)) or (isinstance(n, str) and str(n).replace('.', '').isdigit())))
+                    if valid_names > 0:
+                        print(f"  ✅ Found {valid_names} valid names in Student Name_grade - using these instead!")
+                        merged_df['Student Name'] = merged_df['Student Name_grade']
+                
+                if 'Student Name_att' in merged_df.columns:
+                    att_name_sample = merged_df['Student Name_att'].head(10).tolist()
+                    print(f"  Student Name_att sample: {att_name_sample}")
+                    # Check if these are actual names (not all numeric)
+                    valid_names = sum(1 for n in att_name_sample if pd.notna(n) and not (isinstance(n, (int, float)) or (isinstance(n, str) and str(n).replace('.', '').isdigit())))
+                    if valid_names > 0:
+                        print(f"  ✅ Found {valid_names} valid names in Student Name_att - filling missing names!")
+                        # Fill missing or invalid names from attendance
+                        mask = (merged_df['Student Name'].astype(str).str.isdigit()) | (merged_df['Student Name'].isna())
+                        merged_df.loc[mask, 'Student Name'] = merged_df.loc[mask, 'Student Name_att']
+        print(f"=== END PRE-PROCESSING VALIDATION ===\n")
+        
         results = []
         for row_idx, (_, row) in enumerate(merged_df.iterrows()):
             if row_idx < 5:  # Debug first 5 rows
