@@ -1398,12 +1398,41 @@ def normalize_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> Tupl
 
 def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Merge grades and attendance data using INNER JOIN.
-    First tries merging by Student#, then falls back to Student Name if Student# is inconsistent.
-    Only includes students present in BOTH sheets.
+    Merge grades and attendance data using INNER JOIN on Student#.
+    Properly consolidates Student Name from both sheets.
     """
     print(f"DEBUG: merge_data called - grades_df shape: {grades_df.shape}, columns: {list(grades_df.columns)}")
     print(f"DEBUG: merge_data called - attendance_df shape: {attendance_df.shape}, columns: {list(attendance_df.columns)}")
+    
+    # CRITICAL: Ensure we have the right column names before merging
+    # Check if columns need to be standardized
+    grades_student_id_col = None
+    attendance_student_id_col = None
+    
+    # Find Student# or Student ID column in grades
+    for col in grades_df.columns:
+        if col in ['Student#', 'Student ID'] or (isinstance(col, str) and 'student' in col.lower() and ('#' in col or 'id' in col.lower())):
+            grades_student_id_col = col
+            break
+    
+    # Find Student# or Student ID column in attendance
+    for col in attendance_df.columns:
+        if col in ['Student#', 'Student ID'] or (isinstance(col, str) and 'student' in col.lower() and ('#' in col or 'id' in col.lower())):
+            attendance_student_id_col = col
+            break
+    
+    if not grades_student_id_col or not attendance_student_id_col:
+        raise ValueError(f"Student ID column not found. Grades columns: {list(grades_df.columns)}, Attendance columns: {list(attendance_df.columns)}")
+    
+    # Standardize to 'Student#' for merging
+    if grades_student_id_col != 'Student#':
+        grades_df = grades_df.rename(columns={grades_student_id_col: 'Student#'})
+    if attendance_student_id_col != 'Student#':
+        attendance_df = attendance_df.rename(columns={attendance_student_id_col: 'Student#'})
+    
+    print(f"DEBUG: Using 'Student#' as merge key")
+    print(f"DEBUG: Grades Student# sample: {grades_df['Student#'].head(5).tolist()}")
+    print(f"DEBUG: Attendance Student# sample: {attendance_df['Student#'].head(5).tolist()}")
     
     # Ensure Student Name exists in both DataFrames (required for fallback merge)
     # Check and create if missing
@@ -1478,62 +1507,59 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
         except Exception as e2:
             raise ValueError(f"Failed to process Student Name column: {e}. Fallback also failed: {e2}. Grades columns: {list(grades_df.columns)}, Attendance columns: {list(attendance_df.columns)}")
     
-    # Try merging by Student ID (or Student#) first (if both have it)
-    # NOTE: normalize_data() renames Student# to Student ID, so check for Student ID first
-    merged = None
-    merge_method = None
-    merge_key = None
+    # --- Standardize and clean Student# for merging ---
+    # Ensure Student# exists and is clean
+    if 'Student#' not in grades_df.columns:
+        raise ValueError(f"'Student#' not found in grades_df. Available columns: {list(grades_df.columns)}")
+    if 'Student#' not in attendance_df.columns:
+        raise ValueError(f"'Student#' not found in attendance_df. Available columns: {list(attendance_df.columns)}")
     
-    # Check which column name exists (Student ID from normalize_data, or Student# from raw data)
-    if 'Student ID' in grades_df.columns and 'Student ID' in attendance_df.columns:
-        merge_key = 'Student ID'
-    elif 'Student#' in grades_df.columns and 'Student#' in attendance_df.columns:
-        merge_key = 'Student#'
+    # Clean Student# - convert to string and strip
+    grades_df['Student#'] = grades_df['Student#'].astype(str).str.strip().str.replace('.0', '', regex=False)
+    attendance_df['Student#'] = attendance_df['Student#'].astype(str).str.strip().str.replace('.0', '', regex=False)
     
-    if merge_key:
-        # Use simple approach like user's working script
-        print(f"DEBUG: Before merge - grades_df shape: {grades_df.shape}, attendance_df shape: {attendance_df.shape}")
-        print(f"DEBUG: Before merge - Using merge key: '{merge_key}'")
-        print(f"DEBUG: Before merge - grades_df {merge_key} sample: {grades_df[merge_key].head(5).tolist()}")
-        print(f"DEBUG: Before merge - attendance_df {merge_key} sample: {attendance_df[merge_key].head(5).tolist()}")
-        print(f"DEBUG: Before merge - grades_df Student Name sample: {grades_df['Student Name'].head(5).tolist() if 'Student Name' in grades_df.columns else 'NOT FOUND'}")
-        print(f"DEBUG: Before merge - attendance_df Student Name sample: {attendance_df['Student Name'].head(5).tolist() if 'Student Name' in attendance_df.columns else 'NOT FOUND'}")
-        
-        # Convert to string for both sheets (like user's script)
-        grades_student_id = safe_get_series(grades_df, merge_key)
-        grades_df[merge_key] = grades_student_id.astype(str).str.strip()
-        
-        attendance_student_id = safe_get_series(attendance_df, merge_key)
-        attendance_df[merge_key] = attendance_student_id.astype(str).str.strip()
-        
-        # Perform INNER JOIN on merge_key (like user's script)
-        merged_by_id = pd.merge(
-            grades_df,
-            attendance_df,
-            on=merge_key,
-            how='inner',  # INNER JOIN - only include students in both sheets
-            suffixes=('_grades', '_attendance')
-        )
-        
-        print(f"✅ Merge by {merge_key} completed: {len(merged_by_id)} rows matched")
-        print(f"DEBUG: After merge - merged columns: {list(merged_by_id.columns)}")
-        print(f"DEBUG: After merge - unique {merge_key} count: {merged_by_id[merge_key].nunique()}")
-        
-        # Check Student Name columns after merge
-        if 'Student Name_grades' in merged_by_id.columns:
-            print(f"DEBUG: Student Name_grades sample (first 5): {merged_by_id['Student Name_grades'].head(5).tolist()}")
-        if 'Student Name_attendance' in merged_by_id.columns:
-            print(f"DEBUG: Student Name_attendance sample (first 5): {merged_by_id['Student Name_attendance'].head(5).tolist()}")
-        
-        # Use the merged result
-        if len(merged_by_id) > 0:
-            merged = merged_by_id.copy()
-            merge_method = merge_key
-            print(f"✅ Using merge by {merge_key} (INNER JOIN): {len(merged)} rows matched")
-        else:
-            print(f"WARNING: {merge_key} merge resulted in 0 matches, trying Student Name merge")
-    else:
-        print("WARNING: Neither 'Student ID' nor 'Student#' found in both DataFrames, trying Student Name merge")
+    # Clean Student Name - ensure it's a string
+    if 'Student Name' in grades_df.columns:
+        grades_df['Student Name'] = grades_df['Student Name'].astype(str).str.strip()
+    if 'Student Name' in attendance_df.columns:
+        attendance_df['Student Name'] = attendance_df['Student Name'].astype(str).str.strip()
+    
+    print(f"DEBUG: Before merge - grades_df Student# sample: {grades_df['Student#'].head(5).tolist()}")
+    print(f"DEBUG: Before merge - attendance_df Student# sample: {attendance_df['Student#'].head(5).tolist()}")
+    print(f"DEBUG: Before merge - grades_df Student Name sample: {grades_df['Student Name'].head(5).tolist() if 'Student Name' in grades_df.columns else 'NOT FOUND'}")
+    print(f"DEBUG: Before merge - attendance_df Student Name sample: {attendance_df['Student Name'].head(5).tolist() if 'Student Name' in attendance_df.columns else 'NOT FOUND'}")
+    
+    # --- Merge on Student# using INNER JOIN ---
+    # Select only needed columns from attendance to avoid conflicts
+    attendance_cols_to_merge = ['Student#']
+    if 'Student Name' in attendance_df.columns:
+        attendance_cols_to_merge.append('Student Name')
+    if 'attendance_pct' in attendance_df.columns:
+        attendance_cols_to_merge.append('attendance_pct')
+    elif 'Attended % to Date.' in attendance_df.columns:
+        attendance_cols_to_merge.append('Attended % to Date.')
+    
+    merged = pd.merge(
+        grades_df,
+        attendance_df[attendance_cols_to_merge],
+        on='Student#',
+        how='inner',  # INNER JOIN - only students in both sheets
+        suffixes=('_grade', '_att')
+    )
+    
+    print(f"✅ Merge by Student# completed: {len(merged)} rows matched")
+    print(f"DEBUG: After merge - merged columns: {list(merged.columns)}")
+    print(f"DEBUG: After merge - unique Student# count: {merged['Student#'].nunique()}")
+    
+    # Check Student Name columns after merge
+    if 'Student Name_grade' in merged.columns:
+        print(f"DEBUG: Student Name_grade sample (first 5): {merged['Student Name_grade'].head(5).tolist()}")
+    if 'Student Name_att' in merged.columns:
+        print(f"DEBUG: Student Name_att sample (first 5): {merged['Student Name_att'].head(5).tolist()}")
+    elif 'Student Name_attendance' in merged.columns:
+        print(f"DEBUG: Student Name_attendance sample (first 5): {merged['Student Name_attendance'].head(5).tolist()}")
+    
+    merge_method = 'Student#'
     
     # Fallback to Student Name merge (or use it if Student# doesn't exist)
     if merged is None:
