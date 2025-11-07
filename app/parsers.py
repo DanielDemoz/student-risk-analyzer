@@ -710,24 +710,57 @@ def load_refined_data(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Di
         print(f"⚠️ WARNING: Attendance column 2 is '{attendance_df.columns[1]}', not 'Student Name'. Forcing rename.")
         attendance_df.columns.values[1] = 'Student Name'
     
+    # CRITICAL: Check if columns are swapped in Excel (Column 1 has names, Column 2 has IDs)
     # Verify Student Name column has actual data (not IDs)
     print(f"\n=== VERIFICATION: Student Name in Column 2 ===")
-    if 'Student Name' in grades_df.columns:
+    if 'Student Name' in grades_df.columns and 'Student#' in grades_df.columns:
         sample_names = grades_df['Student Name'].head(5).tolist()
-        print(f"Grades - Student Name sample (first 5): {sample_names}")
-        # Check if names are numeric (IDs) - this would indicate misalignment
-        numeric_count = sum(1 for name in sample_names if isinstance(name, (int, float)) or (isinstance(name, str) and name.replace('.', '').isdigit()))
-        if numeric_count > 0:
-            print(f"⚠️ WARNING: {numeric_count} out of 5 Student Names in Grades are numeric (IDs)! This indicates column misalignment.")
+        sample_ids = grades_df['Student#'].head(5).tolist()
+        print(f"Grades - Student# (column 1) sample: {sample_ids}")
+        print(f"Grades - Student Name (column 2) sample: {sample_names}")
+        
+        # Check if names are numeric (IDs) - this would indicate columns are swapped
+        numeric_name_count = sum(1 for name in sample_names if isinstance(name, (int, float)) or (isinstance(name, str) and name.replace('.', '').isdigit()))
+        non_numeric_id_count = sum(1 for id_val in sample_ids if not (isinstance(id_val, (int, float)) or (isinstance(id_val, str) and str(id_val).replace('.', '').isdigit())))
+        
+        if numeric_name_count > 0 and non_numeric_id_count > 0:
+            print(f"⚠️ CRITICAL: {numeric_name_count} Student Names are numeric (IDs) AND {non_numeric_id_count} Student# values are non-numeric!")
+            print(f"  This indicates the Excel columns are SWAPPED (Column 1 has names, Column 2 has IDs).")
+            print(f"  SWAPPING columns 1 and 2 in Grades sheet...")
+            # Swap columns 1 and 2
+            cols = list(grades_df.columns)
+            cols[0], cols[1] = cols[1], cols[0]
+            grades_df = grades_df[cols]
+            grades_df.columns = ['Student#', 'Student Name', 'Program Name', 'Program Grade']
+            print(f"  ✅ Swapped - New Student# sample: {grades_df['Student#'].head(3).tolist()}")
+            print(f"  ✅ Swapped - New Student Name sample: {grades_df['Student Name'].head(3).tolist()}")
+        elif numeric_name_count > 0:
+            print(f"⚠️ WARNING: {numeric_name_count} out of 5 Student Names in Grades are numeric (IDs)! This indicates column misalignment.")
         print(f"Grades - Student Name non-null: {grades_df['Student Name'].notna().sum()} / {len(grades_df)}")
     
-    if 'Student Name' in attendance_df.columns:
+    if 'Student Name' in attendance_df.columns and 'Student#' in attendance_df.columns:
         sample_names = attendance_df['Student Name'].head(5).tolist()
-        print(f"Attendance - Student Name sample (first 5): {sample_names}")
-        # Check if names are numeric (IDs) - this would indicate misalignment
-        numeric_count = sum(1 for name in sample_names if isinstance(name, (int, float)) or (isinstance(name, str) and name.replace('.', '').isdigit()))
-        if numeric_count > 0:
-            print(f"⚠️ WARNING: {numeric_count} out of 5 Student Names in Attendance are numeric (IDs)! This indicates column misalignment.")
+        sample_ids = attendance_df['Student#'].head(5).tolist()
+        print(f"Attendance - Student# (column 1) sample: {sample_ids}")
+        print(f"Attendance - Student Name (column 2) sample: {sample_names}")
+        
+        # Check if names are numeric (IDs) - this would indicate columns are swapped
+        numeric_name_count = sum(1 for name in sample_names if isinstance(name, (int, float)) or (isinstance(name, str) and name.replace('.', '').isdigit()))
+        non_numeric_id_count = sum(1 for id_val in sample_ids if not (isinstance(id_val, (int, float)) or (isinstance(id_val, str) and str(id_val).replace('.', '').isdigit())))
+        
+        if numeric_name_count > 0 and non_numeric_id_count > 0:
+            print(f"⚠️ CRITICAL: {numeric_name_count} Student Names are numeric (IDs) AND {non_numeric_id_count} Student# values are non-numeric!")
+            print(f"  This indicates the Excel columns are SWAPPED (Column 1 has names, Column 2 has IDs).")
+            print(f"  SWAPPING columns 1 and 2 in Attendance sheet...")
+            # Swap columns 1 and 2
+            cols = list(attendance_df.columns)
+            cols[0], cols[1] = cols[1], cols[0]
+            attendance_df = attendance_df[cols]
+            attendance_df.columns = ['Student#', 'Student Name', 'Attended % to Date.']
+            print(f"  ✅ Swapped - New Student# sample: {attendance_df['Student#'].head(3).tolist()}")
+            print(f"  ✅ Swapped - New Student Name sample: {attendance_df['Student Name'].head(3).tolist()}")
+        elif numeric_name_count > 0:
+            print(f"⚠️ WARNING: {numeric_name_count} out of 5 Student Names in Attendance are numeric (IDs)! This indicates column misalignment.")
         print(f"Attendance - Student Name non-null: {attendance_df['Student Name'].notna().sum()} / {len(attendance_df)}")
     print(f"=== END VERIFICATION ===\n")
     

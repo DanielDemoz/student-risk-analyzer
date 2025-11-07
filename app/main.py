@@ -521,11 +521,37 @@ async def upload_file(
                                         print(f"  Using swapped Student ID as name: {student_name}")
                                         found_real_name = True
                                 
-                                # Last resort: If we still can't find a name, set to Unknown
+                                # Last resort: Check if 'Student Name' column exists but contains the ID
+                                # If so, maybe the Excel columns are swapped (Column 1 has names, Column 2 has IDs)
                                 if not found_real_name:
-                                    print(f"  ERROR: Could not find actual Student Name for Student ID '{student_id}'. The Excel file may have misaligned columns.")
-                                    print(f"    Available columns with 'name' or 'student': {[col for col in row.index if 'name' in col.lower() or 'student' in col.lower()]}")
-                                    student_name = 'Unknown'  # Better to show Unknown than a numeric ID
+                                    # Check if 'Student Name' column exists and what it contains
+                                    if 'Student Name' in row.index:
+                                        student_name_val = row.get('Student Name')
+                                        if pd.notna(student_name_val):
+                                            student_name_str = str(student_name_val).strip()
+                                            # If Student Name contains the same ID we're looking for, they might be swapped
+                                            if student_name_str.replace('.', '').isdigit() and int(float(student_name_str)) == int(float(student_id)):
+                                                print(f"  INFO: Student Name column contains the same ID as Student ID. Checking if columns are swapped in Excel.")
+                                                # Try to find name in Student# column (maybe Excel has columns swapped)
+                                                if 'Student#' in row.index:
+                                                    potential_name = row.get('Student#')
+                                                    if pd.notna(potential_name):
+                                                        potential_name_str = str(potential_name).strip()
+                                                        # If it's not numeric and not empty, it might be the actual name
+                                                        if not potential_name_str.replace('.', '').isdigit() and potential_name_str.lower() not in ['nan', 'none', '']:
+                                                            print(f"  ✅ Found name in Student# column (columns may be swapped in Excel): {potential_name_str}")
+                                                            student_name = potential_name_str
+                                                            found_real_name = True
+                                    
+                                    if not found_real_name:
+                                        print(f"  ERROR: Could not find actual Student Name for Student ID '{student_id}'. The Excel file may have misaligned columns.")
+                                        print(f"    Available columns with 'name' or 'student': {[col for col in row.index if 'name' in col.lower() or 'student' in col.lower()]}")
+                                        # Show what's actually in these columns for debugging
+                                        for col in ['Student Name', 'Student#', 'Student ID']:
+                                            if col in row.index:
+                                                val = row.get(col)
+                                                print(f"    {col}: {val} (type: {type(val).__name__})")
+                                        student_name = 'Unknown'  # Better to show Unknown than a numeric ID
                         except (ValueError, TypeError) as e:
                             # Student ID validation failed, but don't swap
                             if row_idx < 5:
