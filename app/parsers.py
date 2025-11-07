@@ -1400,12 +1400,16 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     """
     Merge grades and attendance data using INNER JOIN on Student#.
     Properly consolidates Student Name from both sheets.
+    Uses simple, direct approach to prevent misalignment.
     """
     print(f"DEBUG: merge_data called - grades_df shape: {grades_df.shape}, columns: {list(grades_df.columns)}")
     print(f"DEBUG: merge_data called - attendance_df shape: {attendance_df.shape}, columns: {list(attendance_df.columns)}")
     
-    # CRITICAL: Ensure we have the right column names before merging
-    # Check if columns need to be standardized
+    # CRITICAL: Standardize column names first
+    grades_df.columns = grades_df.columns.str.strip()
+    attendance_df.columns = attendance_df.columns.str.strip()
+    
+    # Find and standardize Student# column
     grades_student_id_col = None
     attendance_student_id_col = None
     
@@ -1430,9 +1434,22 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     if attendance_student_id_col != 'Student#':
         attendance_df = attendance_df.rename(columns={attendance_student_id_col: 'Student#'})
     
+    # --- Clean key fields ---
+    # Convert Student# to string and strip (handle float IDs like 5500425.0)
+    grades_df['Student#'] = grades_df['Student#'].astype(str).str.strip().str.replace('.0', '', regex=False)
+    attendance_df['Student#'] = attendance_df['Student#'].astype(str).str.strip().str.replace('.0', '', regex=False)
+    
+    # Clean Student Name - ensure it's a string
+    if 'Student Name' in grades_df.columns:
+        grades_df['Student Name'] = grades_df['Student Name'].astype(str).str.strip()
+    if 'Student Name' in attendance_df.columns:
+        attendance_df['Student Name'] = attendance_df['Student Name'].astype(str).str.strip()
+    
     print(f"DEBUG: Using 'Student#' as merge key")
     print(f"DEBUG: Grades Student# sample: {grades_df['Student#'].head(5).tolist()}")
     print(f"DEBUG: Attendance Student# sample: {attendance_df['Student#'].head(5).tolist()}")
+    print(f"DEBUG: Grades Student Name sample: {grades_df['Student Name'].head(5).tolist() if 'Student Name' in grades_df.columns else 'NOT FOUND'}")
+    print(f"DEBUG: Attendance Student Name sample: {attendance_df['Student Name'].head(5).tolist() if 'Student Name' in attendance_df.columns else 'NOT FOUND'}")
     
     # Ensure Student Name exists in both DataFrames (required for fallback merge)
     # Check and create if missing
@@ -1529,7 +1546,7 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     print(f"DEBUG: Before merge - grades_df Student Name sample: {grades_df['Student Name'].head(5).tolist() if 'Student Name' in grades_df.columns else 'NOT FOUND'}")
     print(f"DEBUG: Before merge - attendance_df Student Name sample: {attendance_df['Student Name'].head(5).tolist() if 'Student Name' in attendance_df.columns else 'NOT FOUND'}")
     
-    # --- Merge on Student# using INNER JOIN ---
+    # --- Merge correctly on Student# using INNER JOIN ---
     # Select only needed columns from attendance to avoid conflicts
     attendance_cols_to_merge = ['Student#']
     if 'Student Name' in attendance_df.columns:
@@ -1539,6 +1556,7 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     elif 'Attended % to Date.' in attendance_df.columns:
         attendance_cols_to_merge.append('Attended % to Date.')
     
+    # Perform merge with explicit suffixes
     merged = pd.merge(
         grades_df,
         attendance_df[attendance_cols_to_merge],
@@ -1556,10 +1574,50 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
         print(f"DEBUG: Student Name_grade sample (first 5): {merged['Student Name_grade'].head(5).tolist()}")
     if 'Student Name_att' in merged.columns:
         print(f"DEBUG: Student Name_att sample (first 5): {merged['Student Name_att'].head(5).tolist()}")
-    elif 'Student Name_attendance' in merged.columns:
-        print(f"DEBUG: Student Name_attendance sample (first 5): {merged['Student Name_attendance'].head(5).tolist()}")
     
     merge_method = 'Student#'
+    
+    # --- CRITICAL: Consolidate Student Name immediately after merge ---
+    # Prefer Student Name from grades sheet, fallback to attendance
+    if 'Student Name_grade' in merged.columns and 'Student Name_att' in merged.columns:
+        # Both exist - prefer grade, fallback to attendance
+        merged['Student Name'] = merged['Student Name_grade'].fillna(merged['Student Name_att'])
+        # Clean up: remove any remaining NaN by using the other column
+        mask = merged['Student Name'].isna() | (merged['Student Name'].astype(str).str.strip() == '')
+        merged.loc[mask, 'Student Name'] = merged.loc[mask, 'Student Name_att']
+        # Drop the suffixed columns
+        merged = merged.drop(columns=['Student Name_grade', 'Student Name_att'], errors='ignore')
+        print(f"✅ Consolidated Student Name from both sources")
+    elif 'Student Name_grade' in merged.columns:
+        merged['Student Name'] = merged['Student Name_grade']
+        merged = merged.drop(columns=['Student Name_grade'], errors='ignore')
+        print(f"✅ Using Student Name from grades")
+    elif 'Student Name_att' in merged.columns:
+        merged['Student Name'] = merged['Student Name_att']
+        merged = merged.drop(columns=['Student Name_att'], errors='ignore')
+        print(f"✅ Using Student Name from attendance")
+    
+    # Clean Student Name: remove NaN, empty strings, and invalid values
+    if 'Student Name' in merged.columns:
+        merged['Student Name'] = merged['Student Name'].astype(str).str.strip()
+        merged['Student Name'] = merged['Student Name'].replace(['nan', 'None', 'NONE', ''], pd.NA)
+        merged['Student Name'] = merged['Student Name'].fillna('Unknown')
+        
+        # Validation: Check if Student Name contains numeric IDs (misalignment indicator)
+        numeric_mask = merged['Student Name'].astype(str).str.match(r'^\d+\.?\d*$', na=False)
+        if numeric_mask.any():
+            print(f"⚠️ WARNING: {numeric_mask.sum()} Student Names appear to be numeric IDs (misalignment detected)!")
+            print(f"Sample numeric 'names': {merged.loc[numeric_mask, 'Student Name'].head(3).tolist()}")
+            # Try to recover from the other source if available
+            if 'Student Name_grade' in merged.columns or 'Student Name_att' in merged.columns:
+                print("Attempting to recover names from alternative source...")
+                # This shouldn't happen if consolidation worked, but handle it
+                # For now, just log the issue
+        else:
+            print(f"✅ Student Name validation passed - no numeric IDs detected")
+        
+        print(f"DEBUG: Final Student Name sample (first 5): {merged['Student Name'].head(5).tolist()}")
+        print(f"DEBUG: Student Name statistics - Valid: {(merged['Student Name'] != 'Unknown').sum()}, Unknown: {(merged['Student Name'] == 'Unknown').sum()}")
     
     # Fallback to Student Name merge (or use it if Student# doesn't exist)
     if merged is None:
