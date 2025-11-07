@@ -422,6 +422,7 @@ async def upload_file(
             
             # Extract Student Name - AFTER merge, Student Name should already be consolidated by merge_data
             # Priority: Student Name (consolidated) > Student Name_grades > Student Name_attendance
+            # CRITICAL: NEVER use row_idx or DataFrame index as Student Name - these are row numbers, not names!
             student_name_val = None
             student_name_source = None
             
@@ -429,6 +430,20 @@ async def upload_file(
             if 'Student Name' in row.index:
                 student_name_val = row.get('Student Name')
                 student_name_source = 'Student Name'
+                
+                # CRITICAL: Check if Student Name is actually a row index (small number matching row_idx)
+                if pd.notna(student_name_val):
+                    student_name_str = str(student_name_val).strip()
+                    # If it's a small number that matches row_idx, it's definitely wrong
+                    try:
+                        if student_name_str.isdigit():
+                            name_as_num = int(float(student_name_str))
+                            if name_as_num < 1000 and name_as_num == row_idx:
+                                print(f"  ⚠️ CRITICAL: Student Name '{student_name_val}' is the row index ({row_idx})! This is wrong!")
+                                student_name_val = None  # Reject it, try to find real name
+                    except (ValueError, TypeError):
+                        pass
+                
                 if row_idx < 5 and (pd.isna(student_name_val) or str(student_name_val).strip().lower() in ['nan', 'none', '']):
                     print(f"  WARNING: Student Name column exists but is empty/null: '{student_name_val}'")
             
@@ -458,13 +473,31 @@ async def upload_file(
                             break
             
             # Final check and assignment
+            # CRITICAL: NEVER use row_idx as Student Name - it's a row number, not a name!
             if student_name_val is None or pd.isna(student_name_val) or str(student_name_val).strip().lower() in ['nan', 'none', '']:
                 student_name = 'Unknown'
                 if row_idx < 5:
                     print(f"  ERROR: No Student Name found in row {row_idx} from any source!")
                     print(f"    Available columns: {[col for col in row.index if 'name' in col.lower() or 'student' in col.lower()]}")
+                    # Show what's actually in Student Name column
+                    if 'Student Name' in row.index:
+                        print(f"    Student Name column value: '{row.get('Student Name')}' (type: {type(row.get('Student Name')).__name__})")
             else:
                 student_name = str(student_name_val).strip()
+                
+                # FINAL VALIDATION: Ensure Student Name is not a row index
+                # If it's a small number (< 1000) that matches row_idx, it's definitely wrong
+                try:
+                    if student_name.isdigit():
+                        name_as_num = int(float(student_name))
+                        if name_as_num < 1000 and name_as_num == row_idx:
+                            print(f"  ⚠️ CRITICAL: Rejecting Student Name '{student_name}' - it's the row index ({row_idx})!")
+                            student_name = 'Unknown'  # Reject it
+                        elif name_as_num < 1000:
+                            print(f"  ⚠️ WARNING: Student Name '{student_name}' is a small number (< 1000) - might be wrong, but keeping it")
+                except (ValueError, TypeError):
+                    pass  # Not a number, so it's fine
+                
                 if row_idx < 5:
                     print(f"  ✅ Extracted Student Name from '{student_name_source}': '{student_name}'")
             
