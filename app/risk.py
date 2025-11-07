@@ -133,13 +133,21 @@ def train_or_fallback_score(
     Returns:
         Tuple of (risk_scores_0_100, categories, model, scaler)
     """
-    # Prepare features
+    # Prepare features - handle both simplified column names and legacy names
     feature_cols = []
     
-    if 'grade_pct' in df.columns:
+    # Check for simplified column names first (Grade %, Attendance %)
+    if 'Grade %' in df.columns:
+        feature_cols.append('Grade %')
+    elif 'grade_pct' in df.columns:
         feature_cols.append('grade_pct')
-    if 'attendance_pct' in df.columns:
+    
+    if 'Attendance %' in df.columns:
+        feature_cols.append('Attendance %')
+    elif 'attendance_pct' in df.columns:
         feature_cols.append('attendance_pct')
+    
+    # Legacy columns (not used in simplified version, but kept for backward compatibility)
     if 'missed_pct' in df.columns:
         feature_cols.append('missed_pct')
     if 'Missed Hours to Date_hours' in df.columns:
@@ -236,7 +244,17 @@ def audit_and_recalculate_risk(df: pd.DataFrame) -> pd.DataFrame:
     df_audit = df.copy()
     
     # --- Step 1. Clean and convert percentage columns with explicit numeric conversion ---
-    if 'grade_pct' in df_audit.columns:
+    # Handle both simplified column names (Grade %, Attendance %) and legacy names (grade_pct, attendance_pct)
+    if 'Grade %' in df_audit.columns:
+        df_audit['Grade %'] = (
+            df_audit['Grade %']
+            .astype(str)
+            .str.replace("%", "", regex=False)
+            .str.strip()
+            .astype(float)
+            .clip(0, 100)
+        )
+    elif 'grade_pct' in df_audit.columns:
         df_audit['Grade %'] = (
             df_audit['grade_pct']
             .astype(str)
@@ -248,7 +266,16 @@ def audit_and_recalculate_risk(df: pd.DataFrame) -> pd.DataFrame:
     else:
         df_audit['Grade %'] = 0.0
     
-    if 'attendance_pct' in df_audit.columns:
+    if 'Attendance %' in df_audit.columns:
+        df_audit['Attendance %'] = (
+            df_audit['Attendance %']
+            .astype(str)
+            .str.replace("%", "", regex=False)
+            .str.strip()
+            .astype(float)
+            .clip(0, 100)
+        )
+    elif 'attendance_pct' in df_audit.columns:
         df_audit['Attendance %'] = (
             df_audit['attendance_pct']
             .astype(str)
@@ -310,8 +337,20 @@ def _fallback_heuristic_score(
     - Risk Score increases as grades or attendance drop
     - Exponential weighting emphasizes low performance more sharply
     """
-    grade_pct = df.get('grade_pct', pd.Series([0.0] * len(df))).fillna(0.0)
-    attendance_pct = df.get('attendance_pct', pd.Series([0.0] * len(df))).fillna(0.0)
+    # Handle both simplified column names and legacy names
+    if 'Grade %' in df.columns:
+        grade_pct = df['Grade %'].fillna(0.0)
+    elif 'grade_pct' in df.columns:
+        grade_pct = df['grade_pct'].fillna(0.0)
+    else:
+        grade_pct = pd.Series([0.0] * len(df))
+    
+    if 'Attendance %' in df.columns:
+        attendance_pct = df['Attendance %'].fillna(0.0)
+    elif 'attendance_pct' in df.columns:
+        attendance_pct = df['attendance_pct'].fillna(0.0)
+    else:
+        attendance_pct = pd.Series([0.0] * len(df))
     
     # Validate: Ensure attendance represents presence (higher = better)
     # If values seem inverted (most students have <50%), log a warning
