@@ -205,18 +205,24 @@ function displayResults(data) {
     resultsSection.classList.remove('d-none');
 
     // Update summary with correct category matching
-    const failedCount = data.summary.Failed || 0;
-    const highCount = data.summary.High || 0;
-    const mediumCount = data.summary.Medium || 0;
-    const lowCount = data.summary.Low || 0;
-    
-    document.getElementById('failedCount').textContent = failedCount;
-    document.getElementById('highCount').textContent = highCount;
+    const noRiskCount = (data.summary["No Risk"] ?? data.summary["Low Risk"]) || 0;
+    const mediumCount = data.summary["Medium Risk"] || 0;
+    const highCount = data.summary["High Risk"] || 0;
+    const failedCount = (data.summary["Extremely High Risk"] ?? data.summary["Failed"]) || 0;
+
+    document.getElementById('noRiskCount').textContent = noRiskCount;
     document.getElementById('mediumCount').textContent = mediumCount;
-    document.getElementById('lowCount').textContent = lowCount;
+    document.getElementById('highCount').textContent = highCount;
+    document.getElementById('failedCount').textContent = failedCount;
     
     // Debug: Log summary to console
-    console.log('Summary counts:', { failedCount, highCount, mediumCount, lowCount, total: data.summary.Total });
+    console.log('Summary counts:', {
+        noRiskCount,
+        mediumCount,
+        highCount,
+        failedCount,
+        total: data.summary.Total
+    });
     document.getElementById('totalCount').textContent = data.summary.Total || 0;
     
     // Calculate and display average grade and attendance

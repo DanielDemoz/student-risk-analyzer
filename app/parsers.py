@@ -8,6 +8,24 @@ from io import BytesIO
 from openpyxl import load_workbook
 from openpyxl.cell.cell import Cell
 
+# Required canonical column names for the new single-sheet layout
+REQUIRED_COLUMNS = {
+    "Student#",
+    "Student Name",
+    "Program Name",
+    "Program Grade",
+    "Attended % to Date.",
+}
+
+# Allow a few common aliases so the parser remains resilient
+COLUMN_ALIASES = {
+    "Student#": {"student#", "student number", "student id", "studentid", "student num"},
+    "Student Name": {"student name", "name", "student"},
+    "Program Name": {"program name", "program", "course", "course name"},
+    "Program Grade": {"program grade", "grade", "overall program grade", "current overall program grade"},
+    "Attended % to Date.": {"attended % to date", "attended to date", "attendance %", "attendance percent", "attendance"},
+}
+
 
 def _clean_header_cols(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -2362,4 +2380,159 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
         print(f"DEBUG: Final merged Student Name sample: {merged['Student Name'].head(5).tolist()}")
     
     return merged
+
+
+def _normalize_header(header: str) -> str:
+    """Helper to normalize header strings for alias matching."""
+    if header is None:
+        return ""
+    normalized = str(header).replace("\xa0", " ").strip().lower()
+    normalized = normalized.replace("%", "").replace("#", "").replace(".", "")
+    normalized = " ".join(normalized.split())
+    return normalized
+
+
+def _rename_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Rename columns using the alias map while preserving already-correct names."""
+    rename_map: Dict[str, str] = {}
+    existing = {col for col in df.columns if col in REQUIRED_COLUMNS}
+
+    for col in df.columns:
+        if col in REQUIRED_COLUMNS:
+            continue
+        normalized = _normalize_header(col)
+        for target, aliases in COLUMN_ALIASES.items():
+            if normalized in aliases and target not in existing and target not in rename_map.values():
+                rename_map[col] = target
+                existing.add(target)
+                break
+
+    if rename_map:
+        df = df.rename(columns=rename_map)
+
+    return df
+
+
+def _extract_hyperlinks(workbook, sheet_name: str) -> Dict[str, str]:
+    """Extract hyperlinks from the Student Name column if available."""
+    sheet = workbook[sheet_name]
+    header_cells = next(sheet.iter_rows(min_row=1, max_row=1))
+    header_to_index = {str(cell.value).strip(): idx for idx, cell in enumerate(header_cells) if cell.value is not None}
+
+    if "Student#" not in header_to_index or "Student Name" not in header_to_index:
+        return {}
+
+    id_idx = header_to_index["Student#"]
+    name_idx = header_to_index["Student Name"]
+    hyperlink_map: Dict[str, str] = {}
+
+    for row in sheet.iter_rows(min_row=2):
+        student_id_cell = row[id_idx]
+        name_cell = row[name_idx]
+        student_id_raw = student_id_cell.value
+        hyperlink = name_cell.hyperlink.target if name_cell.hyperlink else None
+        if student_id_raw and hyperlink:
+            student_id = str(student_id_raw).strip().replace(".0", "")
+            hyperlink_map[student_id] = hyperlink
+
+    return hyperlink_map
+
+
+def load_excel(file_bytes: bytes) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, str]]:
+    """
+    Load the single worksheet that contains student grade and attendance data.
+
+    Returns the raw DataFrame (with canonical column names) and a mapping of
+    Student# -> hyperlink (if hyperlinks are embedded in the Student Name column).
+    """
+    if not file_bytes:
+        raise ValueError("No file contents received.")
+
+    workbook = load_workbook(filename=BytesIO(file_bytes), data_only=True)
+    sheet_name = workbook.sheetnames[0]
+
+    excel_io = BytesIO(file_bytes)
+    df = pd.read_excel(excel_io, sheet_name=sheet_name, engine="openpyxl")
+
+    # Replace non-breaking spaces and strip headers
+    df.columns = [str(col).replace("\xa0", " ").strip() for col in df.columns]
+    df = _rename_columns(df)
+
+    missing_columns = [col for col in REQUIRED_COLUMNS if col not in df.columns]
+    if missing_columns:
+        raise ValueError(
+            "Missing required columns: " + ", ".join(missing_columns) +
+            f". Found columns: {list(df.columns)}"
+        )
+
+    # Keep only the required columns (preserve order)
+    df = df[[col for col in REQUIRED_COLUMNS]]
+
+    hyperlinks = _extract_hyperlinks(workbook, sheet_name)
+    return df, hyperlinks
+
+
+def _to_percentage(series: pd.Series) -> pd.Series:
+    """Convert a Series with percentage-like values to float (0-100)."""
+    cleaned = (
+        series.astype(str)
+        .str.replace("%", "", regex=False)
+        .str.replace(",", "", regex=False)
+        .str.replace("\xa0", " ", regex=False)
+        .str.strip()
+    )
+    numeric = pd.to_numeric(cleaned, errors="coerce")
+    # Values provided as decimals (0-1) should be scaled to 0-100
+    mask = numeric <= 1.0
+    numeric.loc[mask] = numeric.loc[mask] * 100.0
+    return numeric.clip(lower=0.0, upper=100.0).fillna(0.0)
+
+
+def normalize_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Clean and normalize the raw single-sheet DataFrame.
+
+    - Trims whitespace
+    - Removes trailing ".0" from Student#
+    - Converts grades and attendance to numeric percentages
+    - Adds helper columns `Grade %`, `Attendance %`, `grade_pct`, `attendance_pct`
+    """
+    normalized = df.copy()
+
+    normalized["Student#"] = (
+        normalized["Student#"].astype(str)
+        .str.replace("\xa0", " ", regex=False)
+        .str.strip()
+        .str.replace(".0", "", regex=False)
+    )
+
+    normalized["Student Name"] = (
+        normalized["Student Name"].astype(str)
+        .str.replace("\xa0", " ", regex=False)
+        .str.strip()
+    )
+
+    normalized["Program Name"] = (
+        normalized["Program Name"].astype(str)
+        .str.replace("\xa0", " ", regex=False)
+        .str.strip()
+    )
+
+    normalized["Grade %"] = _to_percentage(normalized["Program Grade"])
+    normalized["Attendance %"] = _to_percentage(normalized["Attended % to Date."])
+
+    normalized["grade_pct"] = normalized["Grade %"]
+    normalized["attendance_pct"] = normalized["Attendance %"]
+
+    # Drop duplicate Student# rows, keeping the first occurrence
+    normalized = normalized.drop_duplicates(subset=["Student#"], keep="first").reset_index(drop=True)
+
+    return normalized
+
+
+def load_and_normalize(file_bytes: bytes) -> Tuple[pd.DataFrame, Dict[str, str]]:
+    """Convenience helper used by tests (optional)."""
+    raw_df, hyperlinks = load_excel(file_bytes)
+    normalized_df = normalize_data(raw_df)
+    return normalized_df, hyperlinks
 

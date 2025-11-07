@@ -57,10 +57,10 @@ def get_risk_category(risk_score: float, thresholds: Dict[str, float]) -> str:
 
 # Risk category color mapping
 RISK_COLOR_MAP = {
-    "Low Risk": "#00B050",            # Green
-    "Medium Risk": "#FFC000",         # Orange
-    "High Risk": "#FF0000",           # Red
-    "Extremely High Risk": "#7030A0"  # Dark purple / maroon
+    "No Risk": "#198754",            # Green
+    "Medium Risk": "#FFC107",        # Amber
+    "High Risk": "#DC3545",          # Red
+    "Extremely High Risk": "#6C757D" # Dark gray
 }
 
 
@@ -78,43 +78,20 @@ def get_risk_color(risk_category: str) -> str:
 
 
 def classify_risk_by_grade_attendance(grade_pct: float, attendance_pct: float) -> str:
-    """
-    Classify risk category directly from grade and attendance percentages.
-    Uses explicit numeric conversion and direct threshold comparisons.
-    
-    This ensures that low grade alone (even if attendance is high) still triggers High Risk.
-    
-    Args:
-        grade_pct: Grade percentage (0-100, numeric or string like "24.0%")
-        attendance_pct: Attendance percentage (0-100, numeric or string like "88.9%")
-    
-    Returns:
-        Risk category string (Low Risk, Medium Risk, High Risk, or Extremely High Risk)
-    """
-    # Ensure explicit numeric conversion (handle string inputs like "24.0%")
-    if isinstance(grade_pct, str):
-        grade_pct = float(str(grade_pct).replace("%", "").strip())
-    else:
-        grade_pct = float(grade_pct)
-    
-    if isinstance(attendance_pct, str):
-        attendance_pct = float(str(attendance_pct).replace("%", "").strip())
-    else:
-        attendance_pct = float(attendance_pct)
-    
-    # Clamp to valid range
+    """Assign risk category using rule-based grade/attendance thresholds."""
+    grade_pct = float(str(grade_pct).replace("%", "").strip()) if isinstance(grade_pct, str) else float(grade_pct)
+    attendance_pct = float(str(attendance_pct).replace("%", "").strip()) if isinstance(attendance_pct, str) else float(attendance_pct)
+
     grade = max(0.0, min(100.0, grade_pct))
     attendance = max(0.0, min(100.0, attendance_pct))
-    
-    # Classification logic: low grade alone (even if attendance is high) triggers High Risk
-    if grade < 70 and attendance < 70:
-        return "Extremely High Risk"
-    elif grade < 80 or attendance < 80:
-        return "High Risk"
-    elif grade < 90 or attendance < 90:
+
+    if grade >= 70.0 and attendance >= 70.0:
+        return "No Risk"
+    if grade >= 70.0 and attendance < 70.0:
         return "Medium Risk"
-    else:
-        return "Low Risk"
+    if grade < 70.0 and attendance >= 70.0:
+        return "High Risk"
+    return "Extremely High Risk"
 
 
 def train_or_fallback_score(
@@ -226,19 +203,7 @@ def train_or_fallback_score(
 def audit_and_recalculate_risk(df: pd.DataFrame) -> pd.DataFrame:
     """
     Audit and correct risk scoring for attendance-based model (presence rate).
-    Ensures exponential weighting, consistent risk logic, and category accuracy.
-    
-    This function validates that:
-    - Attendance % represents presence (higher = better)
-    - Risk Score increases as grades or attendance drop
-    - Exponential weighting emphasizes low performance more sharply
-    - Categories align with the corrected attendance interpretation
-    
-    Args:
-        df: DataFrame with 'grade_pct' and 'attendance_pct' columns
-    
-    Returns:
-        DataFrame with validated and corrected risk calculations
+    Ensures 80/20 grade-to-attendance weighting, consistent risk logic, and category accuracy.
     """
     # Create a copy to avoid modifying original
     df_audit = df.copy()
@@ -291,9 +256,8 @@ def audit_and_recalculate_risk(df: pd.DataFrame) -> pd.DataFrame:
     g = df_audit['Grade %'] / 100.0
     a = df_audit['Attendance %'] / 100.0
     
-    # --- Step 3. Exponential weighting ---
-    # Higher = better; penalize low scores more sharply
-    performance_index = 0.6 * (g ** 1.2) + 0.4 * (a ** 1.2)
+    # --- Step 3. Linear weighting (80% grade, 20% attendance) ---
+    performance_index = 0.8 * g + 0.2 * a
     df_audit['Weighted Index P'] = performance_index.round(2)
     
     # --- Step 4. Compute Risk Score (higher = worse) ---
@@ -325,17 +289,11 @@ def _fallback_heuristic_score(
     thresholds: Dict[str, float]
 ) -> Tuple[np.ndarray, List[str], Optional[object], Optional[object]]:
     """
-    Fallback heuristic risk scoring using exponential weighting.
-    
-    Uses exponential weighting formula that penalizes very low grades or attendance more strongly:
+    Fallback heuristic risk scoring using linear weighting (80% grade, 20% attendance).
+
     - Normalize grades and attendance to 0-1
-    - Apply exponential weighting: performance_index = 0.6 * (g^1.2) + 0.4 * (a^1.2)
+    - Apply linear weighting: performance_index = 0.8 * g + 0.2 * a
     - Risk Score = 100 * (1 - performance_index)
-    
-    This ensures:
-    - Attendance % represents presence (higher = better)
-    - Risk Score increases as grades or attendance drop
-    - Exponential weighting emphasizes low performance more sharply
     """
     # Handle both simplified column names and legacy names
     if 'Grade %' in df.columns:
@@ -361,21 +319,13 @@ def _fallback_heuristic_score(
             print("⚠️ WARNING: Attendance values may be inverted. Expected attendance to represent presence (higher = better).")
     
     # Normalize to 0-1 (clamp values to valid range)
-    # Ensure values are in 0-100 range (attendance should be presence %)
     g = np.clip(grade_pct, 0.0, 100.0) / 100.0
     a = np.clip(attendance_pct, 0.0, 100.0) / 100.0
-    
-    # Exponential weighting — more penalty for lower scores
-    # Using power of 1.2 to create exponential curve
-    # Formula: performance_index = 0.6 * (g^1.2) + 0.4 * (a^1.2)
-    # This means:
-    # - Higher grades/attendance → higher performance_index → lower risk
-    # - Lower grades/attendance → lower performance_index → higher risk
-    performance_index = 0.6 * (g ** 1.2) + 0.4 * (a ** 1.2)
-    
+
+    # Linear weighting — 80% grade, 20% attendance
+    performance_index = 0.8 * g + 0.2 * a
+
     # Risk Score (higher = worse), rounded to 1 decimal place
-    # Formula: Risk Score = 100 * (1 - performance_index)
-    # This ensures risk increases as performance decreases
     risk_scores = np.round(100.0 * (1.0 - performance_index), 1)
     
     # Clip to 0-100 range (safety check)

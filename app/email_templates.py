@@ -19,105 +19,79 @@ def generate_email_draft(
     attendance_pct: float,
     risk_category: str
 ) -> Dict[str, str]:
-    """
-    Generate email draft based on risk category.
-    
-    Args:
-        student_name: Student's name
-        program: Program name
-        grade_pct: Grade percentage (0-100)
-        attendance_pct: Attendance percentage (0-100)
-        risk_category: 'High', 'Medium', or 'Low'
-    
-    Returns:
-        Dict with 'subject' and 'body' keys
-    """
+    """Generate an email draft tailored to the student's risk category."""
     advisor = get_advisor_info()
-    
-    # Format percentages
     grade_str = f"{grade_pct:.1f}"
     attendance_str = f"{attendance_pct:.1f}"
-    
-    if risk_category.lower() == 'high':
-        return _high_risk_email(student_name, program, grade_str, attendance_str, advisor)
-    elif risk_category.lower() == 'medium':
+
+    category = risk_category.lower()
+    if category == "no risk":
+        return _no_risk_email(student_name, program, grade_str, attendance_str, advisor)
+    if category == "medium risk":
         return _medium_risk_email(student_name, program, grade_str, attendance_str, advisor)
-    else:
-        return _low_risk_email(student_name, program, grade_str, attendance_str, advisor)
+    if category == "high risk":
+        return _high_risk_email(student_name, program, grade_str, attendance_str, advisor)
+    return _extremely_high_risk_email(student_name, program, grade_str, attendance_str, advisor)
 
 
-def _high_risk_email(
-    student_name: str,
-    program: str,
-    grade_pct: str,
-    attendance_pct: str,
-    advisor: Dict[str, str]
-) -> Dict[str, str]:
-    """Generate high risk warning email."""
-    subject = f"Action Needed: Let's get you back on track in {program}"
-    
+def _no_risk_email(student_name: str, program: str, grade_pct: str, attendance_pct: str, advisor: Dict[str, str]) -> Dict[str, str]:
+    subject = f"Great Work, {student_name} — Keep It Up!"
     body = f"""Hi {student_name},
 
-We're concerned about your recent progress in {program}. Your current grade is {grade_pct}% and attendance is {attendance_pct}%.
+Excellent work so far in {program}! You’re maintaining a strong academic record with a grade of {grade_pct}% and {attendance_pct}% attendance.
 
-Let's meet this week to make a plan—tutoring, time management, and catch-up resources are available.
+Keep up the consistency — your progress shows commitment and discipline. If you’d like, I can share advanced study tips or ways to stay engaged with campus enrichment programs.
 
-Please reply with your availability for a 15–20 minute check-in.
-
-Best,
+Great job!
 
 {advisor['name']}
 {advisor['email']}"""
-    
     return {'subject': subject, 'body': body}
 
 
-def _medium_risk_email(
-    student_name: str,
-    program: str,
-    grade_pct: str,
-    attendance_pct: str,
-    advisor: Dict[str, str]
-) -> Dict[str, str]:
-    """Generate medium risk notice email."""
-    subject = f"Quick check-in for {program}"
-    
+def _medium_risk_email(student_name: str, program: str, grade_pct: str, attendance_pct: str, advisor: Dict[str, str]) -> Dict[str, str]:
+    subject = f"Let’s Talk About Attendance, {student_name}"
     body = f"""Hi {student_name},
 
-I'm checking in about {program}. You're currently at {grade_pct}% with {attendance_pct}% attendance.
+You’re doing very well in {program} with a grade of {grade_pct}%, but your attendance is currently at {attendance_pct}%.
 
-If you'd like, we can review upcoming deadlines and support options to keep you on track.
+Regular participation helps maintain your performance and ensures you don’t miss key content. Please reach out to your instructor or the Student Success Office if something is affecting your attendance.
 
-Let me know a good time to connect.
-
-Best,
+We want to help you stay on track for success.
 
 {advisor['name']}
 {advisor['email']}"""
-    
     return {'subject': subject, 'body': body}
 
 
-def _low_risk_email(
-    student_name: str,
-    program: str,
-    grade_pct: str,
-    attendance_pct: str,
-    advisor: Dict[str, str]
-) -> Dict[str, str]:
-    """Generate low risk encouragement email."""
-    subject = f"Staying on track in {program}"
-    
+def _high_risk_email(student_name: str, program: str, grade_pct: str, attendance_pct: str, advisor: Dict[str, str]) -> Dict[str, str]:
+    subject = f"Support to Improve Your Academic Performance, {student_name}"
     body = f"""Hi {student_name},
 
-Nice work so far in {program}. You're at {grade_pct}% with {attendance_pct}% attendance.
+Thanks for keeping strong attendance at {attendance_pct}% in {program} — that shows real dedication. However, your current grade is {grade_pct}%, which suggests you may need some extra academic support.
 
-If you want to boost your results further, I can share study tips and campus resources.
+I recommend meeting with your instructor or the Student Success team to review study techniques, tutoring options, and learning resources available to you.
 
-Keep it up!
+You’re already putting in the effort — let’s work together to lift your results.
 
 {advisor['name']}
 {advisor['email']}"""
-    
+    return {'subject': subject, 'body': body}
+
+
+def _extremely_high_risk_email(student_name: str, program: str, grade_pct: str, attendance_pct: str, advisor: Dict[str, str]) -> Dict[str, str]:
+    subject = f"Let’s Work Together to Get You Back on Track, {student_name}"
+    body = f"""Hi {student_name},
+
+I’m reaching out about your current progress in {program}. Your grade is {grade_pct}% and attendance is {attendance_pct}%.
+
+These indicators suggest you might be struggling with both coursework and attendance.
+
+Please contact the Student Success Office or your instructor as soon as possible to discuss a recovery plan. We can help you explore tutoring, time management strategies, and support services designed to help you succeed.
+
+You’re not alone in this — we’re here to help you get back on track.
+
+{advisor['name']}
+{advisor['email']}"""
     return {'subject': subject, 'body': body}
 

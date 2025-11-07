@@ -28,7 +28,7 @@
                 <div class="alert alert-info shadow-sm">
                     <h5 class="alert-heading mb-3"><strong>📋 How to Use This Tool</strong></h5>
                     <ol class="mb-0">
-                        <li><strong>Prepare your Excel file</strong> with two sheets: "Students Grade" and "Students attendance "</li>
+                        <li><strong>Prepare your Excel file</strong> with a single worksheet containing the required columns: Student#, Student Name, Program Name, Program Grade, Attended % to Date.</li>
                         <li><strong>Click "Choose File"</strong> and select your Excel file (.xlsx)</li>
                         <li><strong>Click "Analyze Student Risk"</strong> to process your data</li>
                         <li><strong>Review the results</strong> - students are automatically ranked by risk level</li>
@@ -46,31 +46,30 @@
                         </button>
                         <div class="collapse mt-3" id="riskCalcCollapse">
                             <div class="small">
-                                <h6 class="fw-bold mb-2">Risk Score Calculation (Exponential Weighting):</h6>
-                                <p class="mb-2">The risk score uses an exponential weighting formula that penalizes very low grades or attendance more strongly:</p>
+                                <h6 class="fw-bold mb-2">Risk Score Calculation (80/20 Weighting):</h6>
+                                <p class="mb-2">The risk score combines grade and attendance with an 80&nbsp;% / 20&nbsp;% weighting:</p>
                                 <div class="bg-light p-3 rounded mb-3">
                                     <code class="text-dark">
                                         g = Grade% / 100 (normalized 0-1)<br>
                                         a = Attendance% / 100 (normalized 0-1)<br>
-                                        performance_index = 0.6 × (g^1.2) + 0.4 × (a^1.2)<br>
+                                        performance_index = 0.8 × g + 0.2 × a<br>
                                         Risk Score = 100 × (1 - performance_index)
                                     </code>
                                 </div>
                                 <p class="mb-2"><strong>Explanation:</strong></p>
                                 <ul class="mb-3">
-                                    <li><strong>60% weight</strong> on grade performance (exponential)</li>
-                                    <li><strong>40% weight</strong> on attendance (exponential)</li>
-                                    <li><strong>Exponential power (1.2)</strong> creates stronger penalty for very low scores</li>
-                                    <li>Higher risk score = more at risk (scale: 0-100)</li>
+                                    <li><strong>80% weight</strong> on course performance (grade)</li>
+                                    <li><strong>20% weight</strong> on attendance</li>
+                                    <li>Higher risk score = greater intervention priority (scale: 0-100)</li>
                                 </ul>
 
                                 <h6 class="fw-bold mb-2">Risk Category Classification:</h6>
-                                <p class="mb-2">Students are classified into four risk categories based on their risk score:</p>
+                                <p class="mb-2">Students are categorized using direct grade/attendance thresholds:</p>
                                 <ul class="mb-3">
-                                    <li><strong class="text-dark">FAILED:</strong> Risk Score ≥ 90</li>
-                                    <li><strong class="text-danger">HIGH RISK:</strong> Risk Score ≥ 80 and < 90</li>
-                                    <li><strong class="text-warning">MEDIUM RISK:</strong> Risk Score ≥ 60 and < 80</li>
-                                    <li><strong class="text-success">LOW RISK:</strong> Risk Score < 60</li>
+                                    <li><strong class="text-dark">Extremely High Risk:</strong> Grade < 70% <em>and</em> Attendance < 70%</li>
+                                    <li><strong class="text-danger">High Risk:</strong> Grade < 80% <em>or</em> Attendance < 80%</li>
+                                    <li><strong class="text-warning">Medium Risk:</strong> Grade < 90% <em>or</em> Attendance < 90%</li>
+                                    <li><strong class="text-success">Low Risk:</strong> Grade ≥ 90% <em>and</em> Attendance ≥ 90%</li>
                                 </ul>
 
                                 <h6 class="fw-bold mb-2">Simple Rule Flag:</h6>
@@ -81,7 +80,7 @@
                                     </code>
                                 </div>
 
-                                <h6 class="fw-bold mb-2">Example Calculations (Exponential Formula):</h6>
+                                <h6 class="fw-bold mb-2">Example Calculations (80/20 Formula):</h6>
                                 <div class="table-responsive">
                                     <table class="table table-sm table-bordered">
                                         <thead>
@@ -95,82 +94,80 @@
                                         </thead>
                                         <tbody>
                                             <tr>
-                                                <td>90%</td>
                                                 <td>95%</td>
-                                                <td>0.6×(0.9^1.2) + 0.4×(0.95^1.2) = 0.92</td>
-                                                <td>8.0</td>
+                                                <td>97%</td>
+                                                <td>(0.8 × 0.95) + (0.2 × 0.97) = 0.954</td>
+                                                <td>4.6</td>
+                                                <td><span class="badge bg-success">LOW</span></td>
+                                            </tr>
+                                            <tr>
+                                                <td>82%</td>
+                                                <td>86%</td>
+                                                <td>(0.8 × 0.82) + (0.2 × 0.86) = 0.828</td>
+                                                <td>17.2</td>
                                                 <td><span class="badge bg-success">LOW</span></td>
                                             </tr>
                                             <tr>
                                                 <td>75%</td>
-                                                <td>80%</td>
-                                                <td>0.6×(0.75^1.2) + 0.4×(0.80^1.2) = 0.78</td>
-                                                <td>22.0</td>
-                                                <td><span class="badge bg-success">LOW</span></td>
+                                                <td>68%</td>
+                                                <td>(0.8 × 0.75) + (0.2 × 0.68) = 0.74</td>
+                                                <td>26.0</td>
+                                                <td><span class="badge bg-danger">HIGH</span></td>
                                             </tr>
                                             <tr>
                                                 <td>65%</td>
-                                                <td>70%</td>
-                                                <td>0.6×(0.65^1.2) + 0.4×(0.70^1.2) = 0.68</td>
-                                                <td>32.0</td>
-                                                <td><span class="badge bg-success">LOW</span></td>
+                                                <td>60%</td>
+                                                <td>(0.8 × 0.65) + (0.2 × 0.60) = 0.64</td>
+                                                <td>36.0</td>
+                                                <td><span class="badge bg-danger">HIGH</span></td>
                                             </tr>
                                             <tr>
                                                 <td>55%</td>
-                                                <td>60%</td>
-                                                <td>0.6×(0.55^1.2) + 0.4×(0.60^1.2) = 0.57</td>
-                                                <td>43.0</td>
-                                                <td><span class="badge bg-success">LOW</span></td>
+                                                <td>55%</td>
+                                                <td>(0.8 × 0.55) + (0.2 × 0.55) = 0.55</td>
+                                                <td>45.0</td>
+                                                <td><span class="badge bg-danger">HIGH</span></td>
                                             </tr>
                                             <tr>
-                                                <td>50%</td>
-                                                <td>50%</td>
-                                                <td>0.6×(0.50^1.2) + 0.4×(0.50^1.2) = 0.50</td>
-                                                <td>50.0</td>
-                                                <td><span class="badge bg-success">LOW</span></td>
+                                                <td>45%</td>
+                                                <td>40%</td>
+                                                <td>(0.8 × 0.45) + (0.2 × 0.40) = 0.44</td>
+                                                <td>56.0</td>
+                                                <td><span class="badge bg-danger">HIGH</span></td>
                                             </tr>
                                             <tr>
-                                                <td>40%</td>
-                                                <td>40%</td>
-                                                <td>0.6×(0.40^1.2) + 0.4×(0.40^1.2) = 0.40</td>
-                                                <td>60.0</td>
+                                                <td>35%</td>
+                                                <td>30%</td>
+                                                <td>(0.8 × 0.35) + (0.2 × 0.30) = 0.34</td>
+                                                <td>66.0</td>
                                                 <td><span class="badge bg-warning">MEDIUM</span></td>
                                             </tr>
                                             <tr>
-                                                <td>30%</td>
-                                                <td>30%</td>
-                                                <td>0.6×(0.30^1.2) + 0.4×(0.30^1.2) = 0.30</td>
-                                                <td>70.0</td>
-                                                <td><span class="badge bg-warning">MEDIUM</span></td>
+                                                <td>25%</td>
+                                                <td>25%</td>
+                                                <td>(0.8 × 0.25) + (0.2 × 0.25) = 0.25</td>
+                                                <td>75.0</td>
+                                                <td><span class="badge bg-danger">HIGH</span></td>
                                             </tr>
                                             <tr>
-                                                <td>20%</td>
-                                                <td>20%</td>
-                                                <td>0.6×(0.20^1.2) + 0.4×(0.20^1.2) = 0.20</td>
-                                                <td>80.0</td>
+                                                <td>15%</td>
+                                                <td>10%</td>
+                                                <td>(0.8 × 0.15) + (0.2 × 0.10) = 0.14</td>
+                                                <td>86.0</td>
                                                 <td><span class="badge bg-danger">HIGH</span></td>
                                             </tr>
                                             <tr>
                                                 <td>10%</td>
-                                                <td>10%</td>
-                                                <td>0.6×(0.10^1.2) + 0.4×(0.10^1.2) = 0.10</td>
-                                                <td>90.0</td>
-                                                <td><span class="badge bg-dark">FAILED</span></td>
-                                            </tr>
-                                            <tr>
-                                                <td>0%</td>
-                                                <td>0%</td>
-                                                <td>0.6×(0.00^1.2) + 0.4×(0.00^1.2) = 0.00</td>
-                                                <td>100.0</td>
-                                                <td><span class="badge bg-dark">FAILED</span></td>
+                                                <td>5%</td>
+                                                <td>(0.8 × 0.10) + (0.2 × 0.05) = 0.09</td>
+                                                <td>91.0</td>
+                                                <td><span class="badge bg-dark">EXT. HIGH</span></td>
                                             </tr>
                                         </tbody>
                                     </table>
                                 </div>
                                 <p class="small text-muted mt-2">
-                                    <strong>Note:</strong> The exponential formula (power of 1.2) creates a stronger penalty for very low scores. 
-                                    For example, a student with 20% grade and 20% attendance gets a risk score of 80 (HIGH), 
-                                    while a student with 10% grade and 10% attendance gets 90 (FAILED), showing the exponential penalty effect.
+                                    <strong>Note:</strong> Risk scores rise as either grade or attendance drops. Values near 100 indicate urgent intervention is required.
                                 </p>
                             </div>
                         </div>
@@ -212,10 +209,13 @@
                                 </label>
                                 <input type="file" class="form-control form-control-lg" id="fileInput" accept=".xlsx,.xls" required>
                                 <div class="form-text mt-2">
-                                    <strong>Required:</strong> Your Excel file must contain two sheets:
-                                    <ul class="mb-0 mt-2">
-                                        <li>"Students Grade" - with student grades and program information</li>
-                                        <li>"Students attendance " - with attendance data and student names</li>
+                                    <strong>Required:</strong> Your Excel file must contain the following columns on one worksheet:
+                                    <ul>
+                                        <li><code>Student#</code></li>
+                                        <li><code>Student Name</code></li>
+                                        <li><code>Program Name</code></li>
+                                        <li><code>Program Grade</code></li>
+                                        <li><code>Attended % to Date.</code></li>
                                     </ul>
                                 </div>
                             </div>
@@ -256,18 +256,10 @@
                         </div>
                     </div>
                     <div class="col-md-3 col-sm-6">
-                        <div class="card brukd-summary-card shadow-sm h-100" style="border-left: 4px solid #dc3545; background-color: #fff5f5;">
+                        <div class="card brukd-summary-card shadow-sm h-100" style="border-left: 4px solid #198754; background-color: #f0fff4;">
                             <div class="card-body text-center p-4">
-                                <h3 class="brukd-stat-number mb-2" style="color: #dc3545; font-weight: 700;" id="failedCount">0</h3>
-                                <p class="brukd-stat-label mb-0" style="color: #dc3545; font-weight: 600;">Extremely High Risk</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-3 col-sm-6">
-                        <div class="card brukd-summary-card shadow-sm h-100" style="border-left: 4px solid #dc3545; background-color: #fff5f5;">
-                            <div class="card-body text-center p-4">
-                                <h3 class="brukd-stat-number mb-2" style="color: #dc3545; font-weight: 700;" id="highCount">0</h3>
-                                <p class="brukd-stat-label mb-0" style="color: #dc3545; font-weight: 600;">High Risk</p>
+                                <h3 class="brukd-stat-number mb-2" style="color: #198754; font-weight: 700;" id="noRiskCount">0</h3>
+                                <p class="brukd-stat-label mb-0" style="color: #198754; font-weight: 600;">No Risk</p>
                             </div>
                         </div>
                     </div>
@@ -280,10 +272,18 @@
                         </div>
                     </div>
                     <div class="col-md-3 col-sm-6">
-                        <div class="card brukd-summary-card shadow-sm h-100" style="border-left: 4px solid #28a745; background-color: #f0fff4;">
+                        <div class="card brukd-summary-card shadow-sm h-100" style="border-left: 4px solid #dc3545; background-color: #fff5f5;">
                             <div class="card-body text-center p-4">
-                                <h3 class="brukd-stat-number mb-2" style="color: #28a745; font-weight: 700;" id="lowCount">0</h3>
-                                <p class="brukd-stat-label mb-0" style="color: #28a745; font-weight: 600;">Low Risk</p>
+                                <h3 class="brukd-stat-number mb-2" style="color: #dc3545; font-weight: 700;" id="highCount">0</h3>
+                                <p class="brukd-stat-label mb-0" style="color: #dc3545; font-weight: 600;">High Risk</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-sm-6">
+                        <div class="card brukd-summary-card shadow-sm h-100" style="border-left: 4px solid #6c757d; background-color: #f8f9fa;">
+                            <div class="card-body text-center p-4">
+                                <h3 class="brukd-stat-number mb-2" style="color: #6c757d; font-weight: 700;" id="failedCount">0</h3>
+                                <p class="brukd-stat-label mb-0" style="color: #6c757d; font-weight: 600;">Extremely High Risk</p>
                             </div>
                         </div>
                     </div>

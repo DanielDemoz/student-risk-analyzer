@@ -19,8 +19,8 @@ import numpy as np
 import traceback
 
 from app.models import StudentRiskResult, UploadResponse, EmailDraftRequest, EmailDraftResponse
-from app.parsers import load_excel, normalize_data, merge_data
-from app.risk import simple_rule, train_or_fallback_score, get_risk_category, get_explanation
+from app.parsers import load_excel, normalize_data
+from app.risk import simple_rule, classify_risk_by_grade_attendance, get_risk_color
 from app.email_templates import generate_email_draft
 
 # Load environment variables
@@ -134,16 +134,13 @@ async def health_check():
 
 @app.post("/debug-columns")
 async def debug_columns(file: UploadFile = File(...)):
-    """Debug endpoint to see what columns are in the Excel file."""
+    """Debug endpoint to inspect the uploaded Excel file."""
     try:
         file_bytes = await file.read()
-        grades_df, attendance_df, name_hyperlinks = load_excel(file_bytes)
-        
+        df, _ = load_excel(file_bytes)
         return JSONResponse(content={
-            "grades_columns": list(grades_df.columns),
-            "attendance_columns": list(attendance_df.columns),
-            "grades_sample": grades_df.head(3).to_dict(orient='records') if len(grades_df) > 0 else [],
-            "attendance_sample": attendance_df.head(3).to_dict(orient='records') if len(attendance_df) > 0 else []
+            "columns": list(df.columns),
+            "sample": df.head(3).to_dict(orient="records") if not df.empty else []
         })
     except Exception as e:
         return JSONResponse(
@@ -156,12 +153,7 @@ async def debug_columns(file: UploadFile = File(...)):
 async def upload_file(
     file: UploadFile = File(...)
 ):
-    """
-    Upload and process Excel file.
-    
-    Accepts Excel file with 'Students Grade' and attendance sheets.
-    Returns processed results with risk scores.
-    """
+    """Upload and process the single-sheet Excel file."""
     # Check file size
     file_bytes = await file.read()
     if len(file_bytes) > MAX_UPLOAD_SIZE:
@@ -169,637 +161,129 @@ async def upload_file(
             status_code=413,
             detail=f"File too large. Maximum size: {MAX_UPLOAD_SIZE_MB}MB"
         )
-    
+
     # Check file type
-    if not file.filename.endswith(('.xlsx', '.xls')):
+    if not file.filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(
             status_code=400,
             detail="Invalid file type. Please upload an Excel file (.xlsx or .xls)"
         )
-    
+
     try:
-        # Load and parse Excel - use original functions but only read required columns
+        # Load and normalize the single worksheet
         try:
-            grades_df, attendance_df, name_hyperlinks = load_excel(file_bytes)
+            raw_df, name_hyperlinks = load_excel(file_bytes)
+            student_df = normalize_data(raw_df)
         except Exception as e:
             error_msg = f"Error loading Excel file: {str(e)}"
             print(f"ERROR: {error_msg}")
             print(f"Exception type: {type(e).__name__}")
-            import traceback
             print(f"Traceback: {traceback.format_exc()}")
             raise HTTPException(status_code=400, detail=error_msg)
-        
-        # DO NOT filter columns here - let normalize_and_rename_columns handle it
-        # The normalization function will ensure all required columns exist
-        # We just need to verify they exist after normalization
-        print(f"DEBUG: Before normalization - grades_df columns: {list(grades_df.columns)}")
-        print(f"DEBUG: Before normalization - attendance_df columns: {list(attendance_df.columns)}")
-        
-        # Normalize data (convert percentages, etc.)
-        try:
-            grades_normalized, attendance_normalized = normalize_data(grades_df, attendance_df)
-        except Exception as e:
-            error_msg = f"Error normalizing data: {str(e)}"
-            print(f"ERROR: {error_msg}")
-            import traceback
-            print(f"Traceback: {traceback.format_exc()}")
-            raise HTTPException(status_code=400, detail=error_msg)
-        
-        # Merge data using INNER JOIN
-        try:
-            merged_df = merge_data(grades_normalized, attendance_normalized)
-        except Exception as e:
-            error_msg = f"Error merging data: {str(e)}"
-            print(f"ERROR: {error_msg}")
-            import traceback
-            print(f"Traceback: {traceback.format_exc()}")
-            raise HTTPException(status_code=400, detail=error_msg)
-        
-        print(f"Processed: {len(merged_df)} students")
-        
-        # Audit and validate risk scoring calculations
-        from app.risk import audit_and_recalculate_risk
-        try:
-            merged_df_audit = audit_and_recalculate_risk(merged_df)
-            # Use audited values if available for validation
-            if 'Risk Score' in merged_df_audit.columns:
-                merged_df['audited_risk_score'] = merged_df_audit['Risk Score']
-            if 'Weighted Index P' in merged_df_audit.columns:
-                merged_df['performance_index'] = merged_df_audit['Weighted Index P']
-            print("✅ Risk scoring audit completed successfully")
-        except Exception as e:
-            print(f"⚠️ Risk scoring audit warning: {e}")
-            # Continue with normal processing
-        
-        if len(merged_df) == 0:
-            # Provide more detailed error message
-            error_detail = (
-                "No valid student records found in the Excel file after merging. "
-                f"Grades sheet has {len(grades_normalized)} rows, "
-                f"Attendance sheet has {len(attendance_normalized)} rows. "
-                "This usually means Student# values don't match between the two sheets. "
-                "Please check that Student# values are consistent in both sheets."
-            )
-            print(f"ERROR: {error_detail}")
-            raise HTTPException(
-                status_code=400,
-                detail=error_detail
-            )
-        
-        # Clean invalid or missing numeric values before JSON conversion
-        # Replace NaN, Infinity, and -Infinity with 0 for numeric columns
-        numeric_cols = merged_df.select_dtypes(include=[np.number]).columns
-        for col in numeric_cols:
-            merged_df[col] = merged_df[col].fillna(0)
-            merged_df[col] = merged_df[col].replace([np.inf, -np.inf, np.nan], 0)
-        
-        # Check for target labels
-        has_target = 'is_at_risk' in merged_df.columns
-        
-        # Compute risk scores
-        feature_cols = []
-        if 'grade_pct' in merged_df.columns:
-            feature_cols.append('grade_pct')
-        if 'attendance_pct' in merged_df.columns:
-            feature_cols.append('attendance_pct')
-        if 'missed_pct' in merged_df.columns:
-            feature_cols.append('missed_pct')
-        if 'Missed Hours to Date_hours' in merged_df.columns:
-            feature_cols.append('Missed Hours to Date_hours')
-        
-        # Compute risk scores using ML model or fallback heuristic
-        risk_scores, categories, model, scaler = train_or_fallback_score(
-            merged_df, RISK_THRESHOLDS, has_target
-        )
-        
-        # Clean risk_scores array to ensure no NaN or Infinity values
-        if isinstance(risk_scores, np.ndarray):
-            risk_scores = np.nan_to_num(risk_scores, nan=0.0, posinf=100.0, neginf=0.0)
-            risk_scores = np.clip(risk_scores, 0.0, 100.0)
-        else:
-            risk_scores = [clean_numeric_value(score) for score in risk_scores]
-        
-        # Reset index to ensure sequential indexing for risk_scores and categories
-        merged_df = merged_df.reset_index(drop=True)
-        
-        print(f"DEBUG: Before building results - merged_df shape: {merged_df.shape}")
-        print(f"DEBUG: risk_scores length: {len(risk_scores)}")
-        print(f"DEBUG: categories length: {len(categories)}")
-        
-        # Build results - use enumerate to get sequential index
-        # Ensure index is reset to avoid serial number in output
-        merged_df = merged_df.reset_index(drop=True)
-        
-        # With simplified loading, columns are already standardized
-        # No need for column renaming - merged_df already has: Student ID, Student Name, Program, Grade %, Attendance %
-        
-        # Debug: Print column names to understand merge structure
-        # After merge_data, Student Name should be consolidated into a single column
-        print(f"\n=== DEBUG: After merge_data ===")
-        print(f"DEBUG: Merged DataFrame columns: {list(merged_df.columns)}")
-        print(f"DEBUG: Merged DataFrame shape: {merged_df.shape}")
-        if len(merged_df) > 0:
-            print(f"DEBUG: First row sample columns: {list(merged_df.iloc[0].index)}")
-            print(f"DEBUG: First row Student#: {merged_df.iloc[0].get('Student#', 'NOT FOUND')}")
-            print(f"DEBUG: First row Student Name: {merged_df.iloc[0].get('Student Name', 'NOT FOUND')}")
-            # Check for Student Name columns
-            student_name_cols = [col for col in merged_df.columns if 'Student Name' in col or 'Name' in col]
-            student_id_cols = [col for col in merged_df.columns if 'Student#' in col or 'Student ID' in col]
-            print(f"DEBUG: Student Name columns found: {student_name_cols}")
-            print(f"DEBUG: Student ID columns found: {student_id_cols}")
-            
-            # Check if Student Name column has actual values (not all Unknown)
-            if 'Student Name' in merged_df.columns:
-                student_names = merged_df['Student Name'].astype(str)
-                unknown_count = (student_names == 'Unknown').sum()
-                empty_count = (student_names.str.strip() == '').sum()
-                valid_count = len(merged_df) - unknown_count - empty_count
-                print(f"DEBUG: Student Name statistics - Total: {len(merged_df)}, Valid: {valid_count}, Unknown: {unknown_count}, Empty: {empty_count}")
-                if valid_count > 0:
-                    valid_names = student_names[student_names.str.strip() != '']
-                    valid_names = valid_names[valid_names != 'Unknown']
-                    print(f"DEBUG: Sample Valid Student Names (first 10): {valid_names.head(10).tolist()}")
-                if unknown_count > 0:
-                    print(f"WARNING: {unknown_count} rows have 'Unknown' as Student Name!")
-                    # Show first few rows with Unknown names
-                    unknown_rows = merged_df[merged_df['Student Name'].astype(str) == 'Unknown']
-                    if len(unknown_rows) > 0:
-                        print(f"DEBUG: First 3 rows with Unknown names:")
-                        for idx, (_, row) in enumerate(unknown_rows.head(3).iterrows()):
-                            print(f"  Row {idx}: Student#={row.get('Student#', 'N/A')}, Student Name={row.get('Student Name', 'N/A')}")
-            else:
-                print(f"ERROR: 'Student Name' column NOT found in merged DataFrame!")
-        print(f"=== END DEBUG: After merge_data ===\n")
-        
-        # CRITICAL: Check merged DataFrame Student Name column BEFORE processing
-        # The numbers 66, 103, 129 are NOT in Excel files - they're being generated somewhere
-        print(f"\n=== PRE-PROCESSING VALIDATION: Student Name in merged DataFrame ===")
-        if 'Student Name' in merged_df.columns:
-            student_name_sample = merged_df['Student Name'].head(20).tolist()
-            print(f"Student Name column sample (first 20): {student_name_sample}")
-            
-            # Check if any values are small numbers (row indices)
-            small_number_count = 0
-            row_index_matches = 0
-            for idx, name_val in enumerate(student_name_sample):
-                if pd.notna(name_val):
-                    name_str = str(name_val).strip()
-                    try:
-                        if name_str.isdigit():
-                            name_num = int(float(name_str))
-                            if name_num < 1000:
-                                small_number_count += 1
-                                if name_num == idx:
-                                    row_index_matches += 1
-                                    print(f"  ⚠️ Row {idx}: Student Name '{name_val}' matches row index!")
-                    except (ValueError, TypeError):
-                        pass
-            
-            if small_number_count > 0:
-                print(f"⚠️ WARNING: {small_number_count} Student Names are small numbers (< 1000) - likely row indices!")
-                print(f"  {row_index_matches} of them match their row index exactly - this confirms they're row indices!")
-                print(f"  This means the Student Name column in merged_df contains row indices instead of actual names!")
-                print(f"  Attempting to recover names from suffixed columns...")
-                
-                # Try to recover from suffixed columns
-                if 'Student Name_grade' in merged_df.columns:
-                    grade_name_sample = merged_df['Student Name_grade'].head(10).tolist()
-                    print(f"  Student Name_grade sample: {grade_name_sample}")
-                    # Check if these are actual names (not all numeric)
-                    valid_names = sum(1 for n in grade_name_sample if pd.notna(n) and not (isinstance(n, (int, float)) or (isinstance(n, str) and str(n).replace('.', '').isdigit())))
-                    if valid_names > 0:
-                        print(f"  ✅ Found {valid_names} valid names in Student Name_grade - using these instead!")
-                        merged_df['Student Name'] = merged_df['Student Name_grade']
-                
-                if 'Student Name_att' in merged_df.columns:
-                    att_name_sample = merged_df['Student Name_att'].head(10).tolist()
-                    print(f"  Student Name_att sample: {att_name_sample}")
-                    # Check if these are actual names (not all numeric)
-                    valid_names = sum(1 for n in att_name_sample if pd.notna(n) and not (isinstance(n, (int, float)) or (isinstance(n, str) and str(n).replace('.', '').isdigit())))
-                    if valid_names > 0:
-                        print(f"  ✅ Found {valid_names} valid names in Student Name_att - filling missing names!")
-                        # Fill missing or invalid names from attendance
-                        mask = (merged_df['Student Name'].astype(str).str.isdigit()) | (merged_df['Student Name'].isna())
-                        merged_df.loc[mask, 'Student Name'] = merged_df.loc[mask, 'Student Name_att']
-        print(f"=== END PRE-PROCESSING VALIDATION ===\n")
-        
-        results = []
-        for row_idx, (_, row) in enumerate(merged_df.iterrows()):
-            if row_idx < 5:  # Debug first 5 rows
-                print(f"DEBUG: Processing row {row_idx}")
-                print(f"  Available columns: {list(row.index)}")
-                # Print all Student# related columns
-                student_id_cols = [col for col in row.index if 'Student' in col and ('#' in col or 'ID' in col or 'id' in col.lower())]
-                print(f"  Student ID related columns: {student_id_cols}")
-                for col in student_id_cols:
-                    print(f"    {col}: {row.get(col)}")
-            
-            # Extract Student ID - CRITICAL: Must come from Student# column, NOT DataFrame index
-            # The Student# column contains the actual student IDs (e.g., 5500425, 5631002)
-            # Row indices (66, 103) are NOT student IDs and should NEVER be used
-            student_id_val = None
-            student_id_source = None
-            
-            # Priority: Student# (merge key) > Student ID (renamed) > suffixed versions
-            # IMPORTANT: Student# is the merge key, so it should exist and contain real IDs
-            if 'Student#' in row.index and pd.notna(row.get('Student#')):
-                student_id_val = row.get('Student#')
-                student_id_source = 'Student#'
-            elif 'Student ID' in row.index and pd.notna(row.get('Student ID')):
-                student_id_val = row.get('Student ID')
-                student_id_source = 'Student ID'
-            elif 'Student#_grade' in row.index and pd.notna(row.get('Student#_grade')):
-                student_id_val = row.get('Student#_grade')
-                student_id_source = 'Student#_grade'
-            elif 'Student#_att' in row.index and pd.notna(row.get('Student#_att')):
-                student_id_val = row.get('Student#_att')
-                student_id_source = 'Student#_att'
-            elif 'Student#_grades' in row.index and pd.notna(row.get('Student#_grades')):
-                student_id_val = row.get('Student#_grades')
-                student_id_source = 'Student#_grades'
-            elif 'Student#_attendance' in row.index and pd.notna(row.get('Student#_attendance')):
-                student_id_val = row.get('Student#_attendance')
-                student_id_source = 'Student#_attendance'
-            else:
-                # Try alternative column names - but ONLY if they look like real IDs (>= 1000)
-                for col in row.index:
-                    if 'student' in col.lower() and ('#' in col or 'id' in col.lower() or 'number' in col.lower()):
-                        alt_val = row.get(col)
-                        if pd.notna(alt_val):
-                            alt_str = str(alt_val).strip()
-                            # Remove decimal point if present
-                            if '.' in alt_str and alt_str.replace('.', '').isdigit():
-                                alt_str = alt_str.split('.')[0]
-                            try:
-                                alt_num = int(float(alt_str))
-                                if alt_num >= 1000:  # Must be >= 1000 to be a real ID
-                                    student_id_val = alt_val
-                                    student_id_source = col
-                                    print(f"  Found Student ID in '{col}': {alt_str}")
-                                    break
-                            except (ValueError, TypeError):
-                                pass
-            
-            if student_id_val is None or pd.isna(student_id_val):
-                # CRITICAL: If we can't find Student ID, DO NOT use row index
-                student_id = 'Unknown'
-                if row_idx < 5:
-                    print(f"  ERROR: No Student ID found in row {row_idx} - available columns: {list(row.index)}")
-            else:
-                # Convert to string and strip - this is the numeric ID
-                student_id_str = str(student_id_val).strip()
-                # Remove any decimal point if it's a float (e.g., "5500425.0" -> "5500425")
-                if '.' in student_id_str and student_id_str.replace('.', '').isdigit():
-                    student_id_str = student_id_str.split('.')[0]
-                
-                # Final validation: Real Student IDs are typically 6-7 digits (>= 1000)
-                # If it's still a small number, something is wrong
-                try:
-                    student_id_num = int(float(student_id_str))
-                    if student_id_num < 1000:
-                        print(f"ERROR: Row {row_idx} - Student ID '{student_id_str}' from '{student_id_source}' is too small (< 1000). This is likely wrong!")
-                        print(f"  This might be a row index or wrong column. Available columns: {list(row.index)}")
-                        # Don't use it - set to Unknown
-                        student_id = 'Unknown'
-                    else:
-                        # Valid Student ID (>= 1000)
-                        student_id = student_id_str
-                        if row_idx < 5:
-                            print(f"  ✅ Using Student ID from '{student_id_source}': {student_id}")
-                except (ValueError, TypeError):
-                    # Not a number, but might still be valid
-                    student_id = student_id_str
-                    if row_idx < 5:
-                        print(f"  Using Student ID '{student_id_str}' (not numeric, but using it anyway)")
-            
-            # Extract Student Name - AFTER merge, Student Name should already be consolidated by merge_data
-            # Priority: Student Name (consolidated) > Student Name_grades > Student Name_attendance
-            # CRITICAL: NEVER use row_idx or DataFrame index as Student Name - these are row numbers, not names!
-            student_name_val = None
-            student_name_source = None
-            
-            # First check for consolidated Student Name (this should exist after merge_data)
-            if 'Student Name' in row.index:
-                student_name_val = row.get('Student Name')
-                student_name_source = 'Student Name'
-                
-                # CRITICAL: Check if Student Name is actually a row index (small number matching row_idx)
-                if pd.notna(student_name_val):
-                    student_name_str = str(student_name_val).strip()
-                    # If it's a small number that matches row_idx, it's definitely wrong
-                    try:
-                        if student_name_str.isdigit():
-                            name_as_num = int(float(student_name_str))
-                            if name_as_num < 1000 and name_as_num == row_idx:
-                                print(f"  ⚠️ CRITICAL: Student Name '{student_name_val}' is the row index ({row_idx})! This is wrong!")
-                                student_name_val = None  # Reject it, try to find real name
-                    except (ValueError, TypeError):
-                        pass
-                
-                if row_idx < 5 and (pd.isna(student_name_val) or str(student_name_val).strip().lower() in ['nan', 'none', '']):
-                    print(f"  WARNING: Student Name column exists but is empty/null: '{student_name_val}'")
-            
-            # Fallback to suffixed versions if consolidated column doesn't exist or is empty
-            if (student_name_val is None or pd.isna(student_name_val) or str(student_name_val).strip().lower() in ['nan', 'none', '']) and 'Student Name_grades' in row.index:
-                student_name_val = row.get('Student Name_grades')
-                student_name_source = 'Student Name_grades'
-                if row_idx < 5:
-                    print(f"  Using Student Name from grades suffix: '{student_name_val}'")
-            
-            if (student_name_val is None or pd.isna(student_name_val) or str(student_name_val).strip().lower() in ['nan', 'none', '']) and 'Student Name_attendance' in row.index:
-                student_name_val = row.get('Student Name_attendance')
-                student_name_source = 'Student Name_attendance'
-                if row_idx < 5:
-                    print(f"  Using Student Name from attendance suffix: '{student_name_val}'")
-            
-            # Last resort: try alternative column names
-            if student_name_val is None or pd.isna(student_name_val) or str(student_name_val).strip().lower() in ['nan', 'none', '']:
-                for col in ['Name', 'student_name', 'Full Name']:
-                    if col in row.index and pd.notna(row.get(col)):
-                        alt_val = row.get(col)
-                        if str(alt_val).strip().lower() not in ['nan', 'none', '']:
-                            student_name_val = alt_val
-                            student_name_source = col
-                            if row_idx < 5:
-                                print(f"  Found Student Name in alternative column '{col}': '{student_name_val}'")
-                            break
-            
-            # Final check and assignment
-            # CRITICAL: NEVER use row_idx as Student Name - it's a row number, not a name!
-            if student_name_val is None or pd.isna(student_name_val) or str(student_name_val).strip().lower() in ['nan', 'none', '']:
-                student_name = 'Unknown'
-                if row_idx < 5:
-                    print(f"  ERROR: No Student Name found in row {row_idx} from any source!")
-                    print(f"    Available columns: {[col for col in row.index if 'name' in col.lower() or 'student' in col.lower()]}")
-                    # Show what's actually in Student Name column
-                    if 'Student Name' in row.index:
-                        print(f"    Student Name column value: '{row.get('Student Name')}' (type: {type(row.get('Student Name')).__name__})")
-            else:
-                student_name = str(student_name_val).strip()
-                
-                # FINAL VALIDATION: Ensure Student Name is not a row index
-                # If it's a small number (< 1000) that matches row_idx, it's definitely wrong
-                try:
-                    if student_name.isdigit():
-                        name_as_num = int(float(student_name))
-                        if name_as_num < 1000 and name_as_num == row_idx:
-                            print(f"  ⚠️ CRITICAL: Rejecting Student Name '{student_name}' - it's the row index ({row_idx})!")
-                            student_name = 'Unknown'  # Reject it
-                        elif name_as_num < 1000:
-                            print(f"  ⚠️ WARNING: Student Name '{student_name}' is a small number (< 1000) - might be wrong, but keeping it")
-                except (ValueError, TypeError):
-                    pass  # Not a number, so it's fine
-                
-                if row_idx < 5:
-                    print(f"  ✅ Extracted Student Name from '{student_name_source}': '{student_name}'")
-            
-            # Final safety check: if Student Name looks like a number (ID), it might be misaligned
-            # CRITICAL: If Student Name contains an ID (like 5500425.0) and Student ID is small (like 66),
-            # then they're swapped - the ID in Student Name should be in Student ID, and we need to find the actual name
-            try:
-                # Check if student_name is all digits and looks like an ID (>= 1000)
-                if isinstance(student_name, str) and student_name.replace('.', '').isdigit():
-                    student_name_as_id = int(float(student_name))
-                    if student_name_as_id >= 1000:  # Looks like a Student ID (6-7 digits)
-                        # Check if Student ID is suspiciously small or Unknown - if so, they're swapped!
-                        try:
-                            if student_id == 'Unknown' or (isinstance(student_id, str) and student_id.isdigit() and int(float(student_id)) < 1000):
-                                # Both conditions met: Name has ID, ID is small/Unknown -> SWAP
-                                print(f"WARNING: Row {row_idx} - Detected column swap: Student Name='{student_name}' (ID) and Student ID='{student_id}' (small/Unknown). SWAPPING!")
-                                temp_id = student_id
-                                student_id = str(int(float(student_name)))  # Use the name value as the ID (remove .0)
-                                
-                                # Try to find the actual Student Name in other columns
-                                found_real_name = False
-                                
-                                # Priority 1: Check suffixed Student Name columns (from merge) - these might have the real names
-                                for col in ['Student Name_grade', 'Student Name_att', 'Student Name_grades', 'Student Name_attendance']:
-                                    if col in row.index:
-                                        alt_val = row.get(col)
-                                        if pd.notna(alt_val):
-                                            alt_str = str(alt_val).strip()
-                                            # If it's not all digits and not empty, it might be the actual name
-                                            if not alt_str.replace('.', '').isdigit() and alt_str.lower() not in ['nan', 'none', '']:
-                                                print(f"  ✅ Found actual Student Name in '{col}': {alt_str}")
-                                                student_name = alt_str
-                                                found_real_name = True
-                                                break
-                                
-                                # Priority 2: Check any other column with 'name' in it
-                                if not found_real_name:
-                                    for col in row.index:
-                                        if 'name' in col.lower() and 'student' in col.lower() and col != student_name_source:
-                                            alt_val = row.get(col)
-                                            if pd.notna(alt_val):
-                                                alt_str = str(alt_val).strip()
-                                                # If it's not all digits and not empty, it might be the actual name
-                                                if not alt_str.replace('.', '').isdigit() and alt_str.lower() not in ['nan', 'none', '']:
-                                                    print(f"  ✅ Found actual Student Name in '{col}': {alt_str}")
-                                                    student_name = alt_str
-                                                    found_real_name = True
-                                                    break
-                                
-                                # Priority 3: Check if temp_id is a valid name (non-numeric)
-                                if not found_real_name:
-                                    if isinstance(temp_id, str) and not temp_id.replace('.', '').isdigit() and temp_id.lower() not in ['nan', 'none', 'unknown', '']:
-                                        student_name = temp_id
-                                        print(f"  Using swapped Student ID as name: {student_name}")
-                                        found_real_name = True
-                                
-                                # Last resort: Check if 'Student Name' column exists but contains the ID
-                                # If so, maybe the Excel columns are swapped (Column 1 has names, Column 2 has IDs)
-                                if not found_real_name:
-                                    # Check if 'Student Name' column exists and what it contains
-                                    if 'Student Name' in row.index:
-                                        student_name_val = row.get('Student Name')
-                                        if pd.notna(student_name_val):
-                                            student_name_str = str(student_name_val).strip()
-                                            # If Student Name contains the same ID we're looking for, they might be swapped
-                                            if student_name_str.replace('.', '').isdigit() and int(float(student_name_str)) == int(float(student_id)):
-                                                print(f"  INFO: Student Name column contains the same ID as Student ID. Checking if columns are swapped in Excel.")
-                                                # Try to find name in Student# column (maybe Excel has columns swapped)
-                                                if 'Student#' in row.index:
-                                                    potential_name = row.get('Student#')
-                                                    if pd.notna(potential_name):
-                                                        potential_name_str = str(potential_name).strip()
-                                                        # If it's not numeric and not empty, it might be the actual name
-                                                        if not potential_name_str.replace('.', '').isdigit() and potential_name_str.lower() not in ['nan', 'none', '']:
-                                                            print(f"  ✅ Found name in Student# column (columns may be swapped in Excel): {potential_name_str}")
-                                                            student_name = potential_name_str
-                                                            found_real_name = True
-                                    
-                                    if not found_real_name:
-                                        print(f"  ERROR: Could not find actual Student Name for Student ID '{student_id}'. The Excel file may have misaligned columns.")
-                                        print(f"    Available columns with 'name' or 'student': {[col for col in row.index if 'name' in col.lower() or 'student' in col.lower()]}")
-                                        # Show what's actually in these columns for debugging
-                                        for col in ['Student Name', 'Student#', 'Student ID']:
-                                            if col in row.index:
-                                                val = row.get(col)
-                                                print(f"    {col}: {val} (type: {type(val).__name__})")
-                                        student_name = 'Unknown'  # Better to show Unknown than a numeric ID
-                        except (ValueError, TypeError) as e:
-                            # Student ID validation failed, but don't swap
-                            if row_idx < 5:
-                                print(f"  Note: Could not validate swap condition: {e}")
-                    # If student_name is numeric but < 1000, it might be wrong, but don't auto-swap
-                    elif student_name_as_id < 1000:
-                        if row_idx < 5:
-                            print(f"  Note: Student Name '{student_name}' is numeric but < 1000. Keeping as-is.")
-                else:
-                    # Student Name is not all digits - it's likely a real name, keep it!
-                    if row_idx < 5:
-                        print(f"  ✅ Student Name '{student_name}' looks valid (not all digits), keeping it")
-            except (AttributeError, ValueError, TypeError) as e:
-                # If validation fails, keep the original student_name
-                if row_idx < 5:
-                    print(f"  Note: Could not validate Student Name format: {e}, keeping original: {student_name}")
-                pass
-            
-            if row_idx < 5:  # Debug first 5 rows
-                print(f"  Student# value: {row.get('Student#', 'NOT FOUND')}")
-                print(f"  Student Name value: {row.get('Student Name', 'NOT FOUND')}")
-                print(f"  Final - Student ID: {student_id}, Student Name: {student_name}")
-                print(f"  Final - Student ID type: {type(student_id)}, Student Name type: {type(student_name)}")
-                print(f"  Final - Student ID value: '{student_id}', Student Name value: '{student_name}'")
-            
-            # Handle Program Name - clean NaN values
-            program_name_val = row.get('Program Name', 'Unknown')
-            if pd.isna(program_name_val) or str(program_name_val).strip().lower() in ['nan', 'none', '']:
-                program_name = 'Unknown'
-            else:
-                program_name = str(program_name_val).strip()
-            
-            # Clean numeric values to ensure JSON compliance
-            # Use grade_pct and attendance_pct columns (created by normalize_data)
-            grade_pct = clean_numeric_value(row.get('grade_pct', 0))
-            
-            # Get attendance percentage
-            attendance_pct = clean_numeric_value(row.get('attendance_pct', 0))
-            
-            # Get data status
-            data_status = str(row.get('data_status', 'Complete')).strip()
-            if data_status not in ['Complete', 'Missing Grade', 'Missing Attendance', 'Missing Both']:
-                data_status = 'Complete'
-            
-            # Use row_idx (sequential) instead of DataFrame index
-            try:
-                risk_score = clean_numeric_value(risk_scores[row_idx] if row_idx < len(risk_scores) else 0)
-            except (IndexError, KeyError, TypeError):
-                risk_score = 0.0
-            
-            # Adjust risk category based on data status
-            # Use direct grade/attendance classification for more accurate results
-            from app.risk import classify_risk_by_grade_attendance, get_risk_color
-            
-            try:
-                if data_status == 'Missing Both':
-                    risk_category = 'Insufficient Data'
-                    risk_color = '#6B7280'  # Gray for missing data
-                elif data_status == 'Missing Grade':
-                    risk_category = 'Missing Grade'
-                    risk_color = '#6B7280'  # Gray for missing data
-                elif data_status == 'Missing Attendance':
-                    risk_category = 'Missing Attendance'
-                    risk_color = '#6B7280'  # Gray for missing data
-                elif data_status == 'Complete':
-                    # Use direct classification based on grade and attendance
-                    risk_category = classify_risk_by_grade_attendance(grade_pct, attendance_pct)
-                    risk_color = get_risk_color(risk_category)
-                else:
-                    # Fallback to risk score-based category
-                    base_category = categories[row_idx] if row_idx < len(categories) else 'Low'
-                    risk_category = base_category
-                    risk_color = get_risk_color(risk_category)
-            except (IndexError, KeyError, TypeError) as e:
-                print(f"Warning: Error classifying risk for row {row_idx}: {e}")
-                risk_category = 'Low'
-                risk_color = get_risk_color('Low')
-            
-            # Simple rule only applies if both values are available
-            if data_status == 'Complete':
-                simple_rule_flagged = simple_rule(grade_pct, attendance_pct)
-            else:
-                # If data is missing, flag based on available data
-                if data_status == 'Missing Grade':
-                    simple_rule_flagged = attendance_pct < 70.0
-                elif data_status == 'Missing Attendance':
-                    simple_rule_flagged = grade_pct < 70.0
-                else:
-                    simple_rule_flagged = False
-            
-            # Get Campus Login URL from attendance sheet (preferred) or grades sheet hyperlink
-            campus_login_url_from_df = row.get('Campus Login URL')
-            if pd.notna(campus_login_url_from_df) and campus_login_url_from_df:
-                campus_login_url = str(campus_login_url_from_df)
-            else:
-                hyperlink = name_hyperlinks.get(student_id)
-                campus_login_url = build_campus_login_url(student_id, hyperlink)
-            
-            # Get explanation - use row_idx for sequential access
-            explanation = get_explanation(row_idx, merged_df, model, scaler, feature_cols)
-            
-            # Final validation before creating result object
-            # Ensure Student ID is numeric string (not index) and Student Name is text (not ID)
-            if row_idx < 5:
-                print(f"  Before creating result: student_id='{student_id}', student_name='{student_name}'")
-                print(f"    student_id is numeric: {student_id.isdigit() if isinstance(student_id, str) else False}")
-                print(f"    student_name is numeric: {student_name.isdigit() if isinstance(student_name, str) else False}")
-            
+
+        if student_df.empty:
+            raise HTTPException(status_code=400, detail="No student records found in the uploaded file.")
+
+        # Attach hyperlinks if present
+        student_df["Campus Login URL"] = student_df["Student#"].map(name_hyperlinks)
+
+        # Performance index: 80% grade, 20% attendance
+        grade_pct = student_df["grade_pct"].astype(float)
+        attendance_pct = student_df["attendance_pct"].astype(float)
+
+        grade_fraction = (grade_pct / 100.0).clip(lower=0.0, upper=1.0)
+        attendance_fraction = (attendance_pct / 100.0).clip(lower=0.0, upper=1.0)
+        performance_index = (0.8 * grade_fraction + 0.2 * attendance_fraction).clip(lower=0.0, upper=1.0)
+        risk_scores = ((1.0 - performance_index) * 100.0).round(1)
+
+        categories = [
+            classify_risk_by_grade_attendance(g, a)
+            for g, a in zip(grade_pct.tolist(), attendance_pct.tolist())
+        ]
+        colors = [get_risk_color(cat) for cat in categories]
+
+        results: List[StudentRiskResult] = []
+        summary_counts = {
+            'No Risk': 0,
+            'Medium Risk': 0,
+            'High Risk': 0,
+            'Extremely High Risk': 0
+        }
+        simple_rule_count = 0
+
+        for idx, row in student_df.iterrows():
+            student_id = str(row.get("Student#", "")).strip() or "Unknown"
+            student_name = str(row.get("Student Name", "")).strip() or "Unknown"
+            program_name = str(row.get("Program Name", "")).strip() or "Unknown"
+
+            grade_value = clean_numeric_value(row.get("grade_pct", 0.0))
+            attendance_value = clean_numeric_value(row.get("attendance_pct", 0.0))
+            risk_score = clean_numeric_value(risk_scores.iloc[idx])
+
+            risk_category = categories[idx]
+            risk_color = colors[idx]
+
+            if risk_category == 'Extremely High Risk':
+                summary_counts['Extremely High Risk'] += 1
+            elif risk_category == 'High Risk':
+                summary_counts['High Risk'] += 1
+            elif risk_category == 'Medium Risk':
+                summary_counts['Medium Risk'] += 1
+            elif risk_category == 'No Risk':
+                summary_counts['No Risk'] += 1
+
+            is_simple_rule = simple_rule(grade_value, attendance_value)
+            if is_simple_rule:
+                simple_rule_count += 1
+
+            hyperlink = row.get("Campus Login URL")
+            campus_login_url = build_campus_login_url(student_id, hyperlink)
+
             result = StudentRiskResult(
-                student_id=str(student_id),  # Ensure it's a string
-                student_name=str(student_name),  # Ensure it's a string
+                student_id=student_id,
+                student_name=student_name,
                 program_name=program_name,
-                grade_pct=grade_pct,
-                attendance_pct=attendance_pct,
+                grade_pct=grade_value,
+                attendance_pct=attendance_value,
                 risk_score=risk_score,
                 risk_category=risk_category,
                 risk_color=risk_color,
-                simple_rule_flagged=simple_rule_flagged,
+                simple_rule_flagged=is_simple_rule,
                 campus_login_url=campus_login_url,
-                data_status=data_status,
-                explanation=explanation
+                data_status='Complete',
+                explanation=None
             )
             results.append(result)
-            
-            if row_idx < 5:  # Debug first 5 results
-                print(f"  After creating result: student_id='{result.student_id}', student_name='{result.student_name}'")
-                print(f"DEBUG: Added result {row_idx}: {student_name}, data_status: {data_status}, risk_category: {risk_category}")
-        
-        print(f"DEBUG: Total results built: {len(results)}")
-        
-        # Sort by data status first (Complete > Missing Attendance > Missing Grade > Missing Both)
-        # Then by risk score (descending) - highest risk first
-        status_priority = {'Complete': 0, 'Missing Attendance': 1, 'Missing Grade': 2, 'Missing Both': 3}
-        results.sort(key=lambda x: (status_priority.get(x.data_status, 3), -x.risk_score))
-        
-        # Generate session ID
+
+        # Sort by risk score descending (higher risk first)
+        results.sort(key=lambda r: (-r.risk_score, r.student_name))
+
+        # Cache results for downstream endpoints (download/email)
         session_id = datetime.now().isoformat()
         results_cache[session_id] = results
-        
-        # Summary counts - match exact category names from classify_risk_by_grade_attendance
+
         summary = {
-            'Failed': sum(1 for r in results if r.risk_category == 'Extremely High Risk'),
-            'High': sum(1 for r in results if r.risk_category == 'High Risk'),
-            'Medium': sum(1 for r in results if r.risk_category == 'Medium Risk'),
-            'Low': sum(1 for r in results if r.risk_category == 'Low Risk'),
+            'No Risk': summary_counts['No Risk'],
+            'Medium Risk': summary_counts['Medium Risk'],
+            'High Risk': summary_counts['High Risk'],
+            'Extremely High Risk': summary_counts['Extremely High Risk'],
             'Total': len(results),
-            'At Risk (Simple Rule)': sum(1 for r in results if r.simple_rule_flagged)
+            'At Risk (Simple Rule)': simple_rule_count
         }
-        
-        # Also count old category names for backward compatibility
-        summary['High'] += sum(1 for r in results if r.risk_category == 'High')
-        summary['Medium'] += sum(1 for r in results if r.risk_category == 'Medium')
-        summary['Low'] += sum(1 for r in results if r.risk_category == 'Low')
-        
-        print(f"Results: {summary['Total']} students ({summary['Failed']} Extremely High Risk, {summary['High']} High Risk, {summary['Medium']} Medium Risk, {summary['Low']} Low Risk)")
-        
+
+        print(
+            f"Results: {summary['Total']} students ("
+            f"{summary['Extremely High Risk']} Extremely High Risk, {summary['High Risk']} High Risk, "
+            f"{summary['Medium Risk']} Medium Risk, {summary['No Risk']} No Risk)"
+        )
+
         return UploadResponse(
             success=True,
             message=f"Successfully processed {len(results)} students",
             results=results,
             summary=summary
         )
-    
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -820,17 +304,12 @@ async def get_results():
     results = results_cache[latest_session]
     
     summary = {
-        'Failed': sum(1 for r in results if r.risk_category == 'Extremely High Risk'),
-        'High': sum(1 for r in results if r.risk_category == 'High Risk'),
-        'Medium': sum(1 for r in results if r.risk_category == 'Medium Risk'),
-        'Low': sum(1 for r in results if r.risk_category == 'Low Risk'),
+        'No Risk': sum(1 for r in results if r.risk_category == 'No Risk'),
+        'Medium Risk': sum(1 for r in results if r.risk_category == 'Medium Risk'),
+        'High Risk': sum(1 for r in results if r.risk_category == 'High Risk'),
+        'Extremely High Risk': sum(1 for r in results if r.risk_category == 'Extremely High Risk'),
         'Total': len(results)
     }
-    
-    # Also count old category names for backward compatibility
-    summary['High'] += sum(1 for r in results if r.risk_category == 'High')
-    summary['Medium'] += sum(1 for r in results if r.risk_category == 'Medium')
-    summary['Low'] += sum(1 for r in results if r.risk_category == 'Low')
     
     return {
         'session_id': latest_session,
