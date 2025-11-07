@@ -1669,6 +1669,56 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     print(f"DEBUG: Before merge - grades_df Student Name sample: {grades_df['Student Name'].head(5).tolist() if 'Student Name' in grades_df.columns else 'NOT FOUND'}")
     print(f"DEBUG: Before merge - attendance_df Student Name sample: {attendance_df['Student Name'].head(5).tolist() if 'Student Name' in attendance_df.columns else 'NOT FOUND'}")
     
+    # CRITICAL: Validate Student# contains actual IDs (>= 1000) before merging
+    # If Student# contains small numbers (< 1000), it's likely row indices, not student IDs
+    print(f"\n=== PRE-MERGE VALIDATION: Student# values ===")
+    grades_student_id_sample = grades_df['Student#'].head(10).tolist()
+    attendance_student_id_sample = attendance_df['Student#'].head(10).tolist()
+    print(f"Grades Student# sample (first 10): {grades_student_id_sample}")
+    print(f"Attendance Student# sample (first 10): {attendance_student_id_sample}")
+    
+    # Check if Student# values are suspiciously small (row indices)
+    def is_valid_student_id(val):
+        try:
+            num = int(float(str(val).replace('.0', '')))
+            return num >= 1000  # Real student IDs are typically 6-7 digits
+        except (ValueError, TypeError):
+            return False
+    
+    grades_small_ids = sum(1 for val in grades_student_id_sample if not is_valid_student_id(val))
+    attendance_small_ids = sum(1 for val in attendance_student_id_sample if not is_valid_student_id(val))
+    
+    if grades_small_ids > 0 or attendance_small_ids > 0:
+        print(f"⚠️ WARNING: {grades_small_ids} Grades Student# values and {attendance_small_ids} Attendance Student# values are < 1000 (likely row indices)!")
+        print(f"  This indicates columns may be swapped. Checking Student Name columns...")
+        
+        # Check if Student Name contains actual IDs
+        if 'Student Name' in grades_df.columns:
+            grades_name_sample = grades_df['Student Name'].head(10).tolist()
+            grades_name_ids = sum(1 for val in grades_name_sample if is_valid_student_id(val))
+            if grades_name_ids > 0:
+                print(f"  ⚠️ CRITICAL: {grades_name_ids} Student Names in Grades contain valid IDs! Columns are SWAPPED!")
+                print(f"  SWAPPING Student# and Student Name in Grades DataFrame...")
+                # Swap the columns
+                grades_df = grades_df.rename(columns={'Student#': 'Student Name_temp', 'Student Name': 'Student#'})
+                grades_df = grades_df.rename(columns={'Student Name_temp': 'Student Name'})
+                print(f"  ✅ Swapped - New Student# sample: {grades_df['Student#'].head(3).tolist()}")
+                print(f"  ✅ Swapped - New Student Name sample: {grades_df['Student Name'].head(3).tolist()}")
+        
+        if 'Student Name' in attendance_df.columns:
+            attendance_name_sample = attendance_df['Student Name'].head(10).tolist()
+            attendance_name_ids = sum(1 for val in attendance_name_sample if is_valid_student_id(val))
+            if attendance_name_ids > 0:
+                print(f"  ⚠️ CRITICAL: {attendance_name_ids} Student Names in Attendance contain valid IDs! Columns are SWAPPED!")
+                print(f"  SWAPPING Student# and Student Name in Attendance DataFrame...")
+                # Swap the columns
+                attendance_df = attendance_df.rename(columns={'Student#': 'Student Name_temp', 'Student Name': 'Student#'})
+                attendance_df = attendance_df.rename(columns={'Student Name_temp': 'Student Name'})
+                print(f"  ✅ Swapped - New Student# sample: {attendance_df['Student#'].head(3).tolist()}")
+                print(f"  ✅ Swapped - New Student Name sample: {attendance_df['Student Name'].head(3).tolist()}")
+    
+    print(f"=== END PRE-MERGE VALIDATION ===\n")
+    
     # --- Merge correctly on Student# using INNER JOIN ---
     # Select only needed columns from attendance to avoid conflicts
     attendance_cols_to_merge = ['Student#']
@@ -1691,6 +1741,14 @@ def merge_data(grades_df: pd.DataFrame, attendance_df: pd.DataFrame) -> pd.DataF
     print(f"✅ Merge by Student# completed: {len(merged)} rows matched")
     print(f"DEBUG: After merge - merged columns: {list(merged.columns)}")
     print(f"DEBUG: After merge - unique Student# count: {merged['Student#'].nunique()}")
+    
+    # CRITICAL: Validate Student# after merge - ensure it contains actual IDs, not row indices
+    merged_student_id_sample = merged['Student#'].head(10).tolist()
+    print(f"DEBUG: After merge - Student# sample (first 10): {merged_student_id_sample}")
+    merged_small_ids = sum(1 for val in merged_student_id_sample if not is_valid_student_id(val))
+    if merged_small_ids > 0:
+        print(f"⚠️ ERROR: {merged_small_ids} Student# values after merge are < 1000 (row indices)! This should not happen!")
+        print(f"  This indicates the merge corrupted the Student# column. Check merge logic.")
     
     # Check Student Name columns after merge
     if 'Student Name_grade' in merged.columns:
